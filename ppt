@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>考研择校PPT可视化预览</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            background: #1a1a2e;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .slide-container {
+            width: 1440px;
+            height: 810px;
+            margin: 0 auto 40px;
+            position: relative;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            transform-origin: top center;
+        }
+        .slide-number {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            z-index: 100;
+        }
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            padding: 12px 24px;
+            border-radius: 30px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+        .controls button {
+            background: #4a5568;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .controls button:hover { background: #667eea; }
+        .controls .scale-info { color: #a0aec0; font-size: 13px; min-width: 60px; text-align: center; }
+        .nav-dots {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 1000;
+        }
+        .nav-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.3);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .nav-dot.active { background: #667eea; transform: scale(1.3); }
+        .nav-dot:hover { background: #667eea; }
+        .thumbnail-bar {
+            position: fixed;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 12px;
+            overflow-x: auto;
+            max-width: 90vw;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+        .thumbnail {
+            width: 120px;
+            height: 68px;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+            flex-shrink: 0;
+            overflow: hidden;
+            position: relative;
+        }
+        .thumbnail.active { border-color: #667eea; }
+        .thumbnail:hover { transform: scale(1.05); }
+        .thumbnail-number {
+            position: absolute;
+            bottom: 2px;
+            right: 4px;
+            font-size: 10px;
+            color: #666;
+            background: rgba(255,255,255,0.9);
+            padding: 1px 4px;
+            border-radius: 3px;
+        }
+        #slides-wrapper { padding: 40px 20px 150px; transition: transform 0.3s ease; }
+        .loading { text-align: center; color: white; padding: 50px; font-size: 18px; }
+        .title-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 12px 24px;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+        }
+        .title-bar h1 { font-size: 18px; font-weight: 600; }
+        .title-bar .slide-count { font-size: 14px; color: #a0aec0; }
+    </style>
+</head>
+<body>
+    <div class="title-bar">
+        <h1>考研择校PPT可视化预览</h1>
+        <span class="slide-count">共 <span id="total-slides">23</span> 张幻灯片</span>
+    </div>
+    <div id="slides-wrapper"><div class="loading">正在加载幻灯片...</div></div>
+    <div class="thumbnail-bar" id="thumbnail-bar"></div>
+    <div class="controls">
+        <button onclick="changeScale(-0.1)">缩小</button>
+        <span class="scale-info" id="scale-info">100%</span>
+        <button onclick="changeScale(0.1)">放大</button>
+        <button onclick="fitToScreen()">适应屏幕</button>
+        <button onclick="scrollToSlide(0)">首页</button>
+        <button onclick="scrollToSlide(currentSlideIndex - 1)">上一张</button>
+        <button onclick="scrollToSlide(currentSlideIndex + 1)">下一张</button>
+        <button onclick="scrollToSlide(totalSlides - 1)">末页</button>
+    </div>
+    <div class="nav-dots" id="nav-dots"></div>
+    <script>
+        window.slideDataMap = new Map();
+        let currentScale = 0.55;
+        let currentSlideIndex = 0;
+        let totalSlides = 23;
+        function renderSlides() {
+            const wrapper = document.getElementById('slides-wrapper');
+            const thumbnailBar = document.getElementById('thumbnail-bar');
+            const navDots = document.getElementById('nav-dots');
+            wrapper.innerHTML = '';
+            thumbnailBar.innerHTML = '';
+            navDots.innerHTML = '';
+            for (let i = 1; i <= totalSlides; i++) {
+                const slideHtml = window.slideDataMap.get(i);
+                if (!slideHtml) continue;
+                const slideDiv = document.createElement('div');
+                slideDiv.className = 'slide-container';
+                slideDiv.id = 'slide-' + i;
+                slideDiv.innerHTML = '<div class="slide-number">' + i + ' / ' + totalSlides + '</div>' + slideHtml;
+                wrapper.appendChild(slideDiv);
+                const thumb = document.createElement('div');
+                thumb.className = 'thumbnail';
+                thumb.id = 'thumb-' + i;
+                thumb.onclick = function() { scrollToSlide(i - 1); };
+                thumb.innerHTML = '<div class="thumbnail-number">' + i + '</div>';
+                const thumbContent = document.createElement('div');
+                thumbContent.style.cssText = 'transform: scale(0.083); transform-origin: top left; width: 1440px; height: 810px; overflow: hidden;';
+                thumbContent.innerHTML = slideHtml;
+                thumb.appendChild(thumbContent);
+                thumbnailBar.appendChild(thumb);
+                const dot = document.createElement('div');
+                dot.className = 'nav-dot';
+                dot.id = 'dot-' + i;
+                dot.onclick = function() { scrollToSlide(i - 1); };
+                navDots.appendChild(dot);
+            }
+            updateScale();
+            updateActiveStates();
+        }
+        function updateScale() {
+            document.getElementById('slides-wrapper').style.transform = 'scale(' + currentScale + ')';
+            document.getElementById('slides-wrapper').style.transformOrigin = 'top center';
+            document.getElementById('scale-info').textContent = Math.round(currentScale * 100) + '%';
+        }
+        function changeScale(delta) {
+            currentScale = Math.max(0.2, Math.min(1.5, currentScale + delta));
+            updateScale();
+        }
+        function fitToScreen() {
+            currentScale = (window.innerWidth - 60) / 1440;
+            updateScale();
+        }
+        function scrollToSlide(index) {
+            index = Math.max(0, Math.min(totalSlides - 1, index));
+            currentSlideIndex = index;
+            const slide = document.getElementById('slide-' + (index + 1));
+            if (slide) { slide.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+            updateActiveStates();
+        }
+        function updateActiveStates() {
+            for (let i = 1; i <= totalSlides; i++) {
+                const thumb = document.getElementById('thumb-' + i);
+                const dot = document.getElementById('dot-' + i);
+                if (thumb) thumb.classList.toggle('active', i === currentSlideIndex + 1);
+                if (dot) dot.classList.toggle('active', i === currentSlideIndex + 1);
+            }
+        }
+        let scrollTimeout;
+        window.addEventListener('scroll', function() {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(function() {
+                const slides = document.querySelectorAll('.slide-container');
+                slides.forEach(function(slide, idx) {
+                    const rect = slide.getBoundingClientRect();
+                    if (rect.top + rect.height / 2 > 0 && rect.top + rect.height / 2 < window.innerHeight) {
+                        currentSlideIndex = idx;
+                        updateActiveStates();
+                    }
+                });
+            }, 100);
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); scrollToSlide(currentSlideIndex + 1); }
+            else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); scrollToSlide(currentSlideIndex - 1); }
+            else if (e.key === 'Home') { e.preventDefault(); scrollToSlide(0); }
+            else if (e.key === 'End') { e.preventDefault(); scrollToSlide(totalSlides - 1); }
+        });
+        window.addEventListener('load', function() { setTimeout(fitToScreen, 100); setTimeout(renderSlides, 100); });
+    </script>
+<script>window.slideDataMap.set(1, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="absolute inset-0 bg-white"></div>
+    <div class="relative z-10 flex flex-col items-center justify-center h-full px-20 text-center">
+      <div class="mb-8">
+        <div class="w-24 h-1 bg-black mx-auto mb-8"></div>
+        <h1 class="text-7xl font-bold tracking-tight mb-6" style="font-family: 'Microsoft YaHei', sans-serif;">
+          考研择校指南
+        </h1>
+        <p class="text-3xl font-light tracking-wider" style="font-family: 'Microsoft YaHei', sans-serif;">
+          2026年全国硕士研究生招生考试
+        </p>
+      </div>
+      <div class="mt-12 space-y-4">
+        <p class="text-2xl font-medium" style="font-family: 'Microsoft YaHei', sans-serif;">
+          科学规划 · 理性选择 · 精准定位
+        </p>
+        <div class="w-32 h-0.5 bg-black mx-auto mt-8"></div>
+      </div>
+      <div class="absolute bottom-16 left-0 right-0 px-20 flex justify-between text-lg" style="font-family: 'Microsoft YaHei', sans-serif;">
+        <span>帮助考生全面了解目标院校</span>
+        <span>为人生做出重要选择</span>
+        <span>开启研究生生涯新篇章</span>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(2, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="absolute inset-0 bg-white"></div>
+    <div class="relative z-10 h-full px-24 py-16">
+      <h2 class="text-5xl font-bold mb-12 pt-8" style="font-family: 'Microsoft YaHei', sans-serif;">
+        目 录
+      </h2>
+      <div class="w-16 h-1 bg-black mb-16"></div>
+      <div class="grid grid-cols-2 gap-x-32 gap-y-12">
+        <div class="flex items-start space-x-6">
+          <span class="text-5xl font-bold">01</span>
+          <div class="pt-2">
+            <p class="text-2xl font-medium mb-2" style="font-family: 'Microsoft YaHei', sans-serif;">合肥工业大学</p>
+            <p class="text-lg text-gray-600" style="font-family: 'Microsoft YaHei', sans-serif;">安徽省合肥市 · 211工程重点建设高校</p>
+          </div>
+        </div>
+        <div class="flex items-start space-x-6">
+          <span class="text-5xl font-bold">02</span>
+          <div class="pt-2">
+            <p class="text-2xl font-medium mb-2" style="font-family: 'Microsoft YaHei', sans-serif;">深圳大学</p>
+            <p class="text-lg text-gray-600" style="font-family: 'Microsoft YaHei', sans-serif;">广东省深圳市 · 改革开放前沿阵地</p>
+          </div>
+        </div>
+        <div class="flex items-start space-x-6">
+          <span class="text-5xl font-bold">03</span>
+          <div class="pt-2">
+            <p class="text-2xl font-medium mb-2" style="font-family: 'Microsoft YaHei', sans-serif;">华南理工大学</p>
+            <p class="text-lg text-gray-600" style="font-family: 'Microsoft YaHei', sans-serif;">广东省广州市 · 985工程重点建设高校</p>
+          </div>
+        </div>
+        <div class="flex items-start space-x-6">
+          <span class="text-5xl font-bold">04</span>
+          <div class="pt-2">
+            <p class="text-2xl font-medium mb-2" style="font-family: 'Microsoft YaHei', sans-serif;">太原理工大学</p>
+            <p class="text-lg text-gray-600" style="font-family: 'Microsoft YaHei', sans-serif;">山西省太原市 · 国家双一流建设高校</p>
+          </div>
+        </div>
+      </div>
+      <div class="mt-20 text-center text-xl text-gray-500" style="font-family: 'Microsoft YaHei', sans-serif;">
+        本指南将为您提供四所高校的详细信息，帮助您做出明智的择校决策
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(3, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="absolute inset-0 bg-white"></div>
+    <div class="relative z-10 h-full px-20 py-12">
+      <div class="flex items-center mb-6">
+        <div class="w-2 h-12 bg-black mr-6"></div>
+        <h2 class="text-4xl font-bold" style="font-family: 'Microsoft YaHei', sans-serif;">
+          合肥工业大学
+        </h2>
+        <span class="ml-6 px-4 py-2 border-2 border-black text-lg" style="font-family: 'Microsoft YaHei', sans-serif;">
+          211工程 · 教育部直属全国重点大学
+        </span>
+      </div>
+      <div class="w-full h-0.5 bg-gray-200 mb-8"></div>
+      <div class="grid grid-cols-2 gap-12 h-[calc(100%-140px)]">
+        <div class="space-y-6 overflow-auto">
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">学校概况</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              合肥工业大学是一所历史悠久、声誉卓著的高等学府，坐落于安徽省省会合肥市。学校创建于1945年，经过七十多年的发展，已成为国家"211工程"重点建设高校和"双一流"建设高校。学校占地面积5000余亩，拥有优美的校园环境和先进的教学设施，是广大考生深造成才的理想殿堂。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">学科优势</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              学校在管理科学与工程、机械工程、电气工程、计算机科学与技术等学科领域具有显著优势。其中管理科学与工程学科在教育部学科评估中位居全国前列，机械设计制造及其自动化、车辆工程、电气工程及其自动化等专业被评为国家级特色专业。学校拥有多个国家重点实验室和工程研究中心，为研究生提供优质的科研平台。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">师资力量</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              学校现有专任教师2300余人，其中教授、副教授1200余人，博士生导师400余人。拥有中国工程院院士、国家杰出青年科学基金获得者、国家级教学名师等高层次人才百余人。教师队伍结构合理、学术水平高、教学经验丰富，能够为研究生提供高质量的学术指导。
+            </p>
+          </div>
+        </div>
+        <div class="space-y-6 overflow-auto">
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">科研实力</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              学校科研实力雄厚，累计承担国家自然科学基金、国家重点研发计划等国家级科研项目千余项。近年来，学校在新能源汽车、智能制造、人工智能、先进材料等领域取得了一系列重大科研成果，获得国家自然科学奖、国家科技进步奖等国家级科技奖励十余项。学校与华为、比亚迪、科大讯飞等知名企业建立了深度合作关系。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">就业前景</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              合肥工业大学毕业生以扎实的专业基础和较强的实践能力受到用人单位广泛认可。研究生就业率长期保持在98%以上，主要就业单位包括国家电网、中国电子科技集团、华为、阿里巴巴、腾讯等知名企业及科研院所。学校位于长三角经济圈，区域经济发达，为毕业生提供了丰富的就业机会和发展空间。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">报考建议</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              建议工科类考生重点关注机械工程、电气工程、计算机科学与技术等优势学科。近几年复试分数线相对稳定，初试成绩340分以上的考生具有较强的竞争力。考生应重视专业课复习，同时加强数学和英语的备考。合工大复试注重考察考生的专业素养和综合素质，建议提前准备相关专业知识。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(4, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="absolute inset-0 bg-white"></div>
+    <div class="relative z-10 h-full px-20 py-12">
+      <div class="flex items-center mb-6">
+        <div class="w-2 h-12 bg-black mr-6"></div>
+        <h2 class="text-4xl font-bold" style="font-family: 'Microsoft YaHei', sans-serif;">
+          深圳大学
+        </h2>
+        <span class="ml-6 px-4 py-2 border-2 border-black text-lg" style="font-family: 'Microsoft YaHei', sans-serif;">
+          广东省重点大学 · 粤港澳大湾区核心城市
+        </span>
+      </div>
+      <div class="w-full h-0.5 bg-gray-200 mb-8"></div>
+      <div class="grid grid-cols-2 gap-12 h-[calc(100%-140px)]">
+        <div class="space-y-6 overflow-auto">
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">学校概况</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              深圳大学于1983年经国务院批准创办，是深圳市本土第一所综合性大学。学校坐落于改革开放最前沿的深圳市，校园环境优美，办学条件优越。经过四十年的发展，深圳大学已成为一所学科齐全、设施完善、具有鲜明特色的综合性大学，在各类大学排行榜中排名持续上升，综合实力位居全国百强高校之列。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">学科优势</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              深圳大学在计算机科学、电子信息工程、建筑学、土木工程、光学工程等学科领域具有鲜明特色和显著优势。计算机科学学科进入全球ESI前1%，在人工智能、大数据、网络空间安全等前沿方向研究成果丰硕。工程学、材料科学、生物学与生物化学等学科也进入全球ESI前1%。学校拥有多个国家级、省部级重点实验室和科研平台。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">师资力量</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              学校现有专任教师2600余人，其中外籍教师占比超过10%。拥有两院院士23人，国家杰出青年基金获得者、长江学者等国家级高层次人才80余人。教师队伍国际化程度高，毕业于斯坦福、MIT、剑桥、牛津等世界顶尖名校的教师占比持续提升，为研究生教育提供了国际化的学术环境。
+            </p>
+          </div>
+        </div>
+        <div class="space-y-6 overflow-auto">
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">科研实力</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              深圳大学科研创新能力突出，近年来承担各类科研项目数千项，科研经费位居广东省前列。学校在人工智能、5G通信、生物医学工程、新能源材料等领域取得了一系列重要突破。与腾讯、华为、中兴、比亚迪等深圳本土领军企业建立紧密合作关系，联合开展技术研发和成果转化，产学研合作成果丰硕。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">就业前景</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              深圳大学毕业生在就业市场具有显著优势，研究生就业率保持在99%以上。学校位于粤港澳大湾区核心区域，周边汇聚了华为、腾讯、平安、招商银行等世界500强企业及数万家高新技术企业。毕业生平均薪酬水平位居全国前列，大量优秀毕业生进入知名企业或成功创业。学校被誉为"中国最具创新精神的大学"。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">报考建议</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              深圳大学近年来报考热度持续上升，计算机、电子信息、建筑学等专业竞争较为激烈。建议考生根据自身实力合理选择专业，初试成绩达到340分以上会更有把握。深圳大学研究生培养注重实践能力，复试中会考察考生的项目经验和创新能力。深圳作为一线城市，生活成本较高，考生需提前做好经济规划。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(5, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="absolute inset-0 bg-white"></div>
+    <div class="relative z-10 h-full px-20 py-12">
+      <div class="flex items-center mb-6">
+        <div class="w-2 h-12 bg-black mr-6"></div>
+        <h2 class="text-4xl font-bold" style="font-family: 'Microsoft YaHei', sans-serif;">
+          华南理工大学
+        </h2>
+        <span class="ml-6 px-4 py-2 border-2 border-black text-lg" style="font-family: 'Microsoft YaHei', sans-serif;">
+          985工程 · 211工程 · 国家重点建设高校
+        </span>
+      </div>
+      <div class="w-full h-0.5 bg-gray-200 mb-8"></div>
+      <div class="grid grid-cols-2 gap-12 h-[calc(100%-140px)]">
+        <div class="space-y-6 overflow-auto">
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">学校概况</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              华南理工大学坐落于广东省广州市，是教育部直属的全国重点大学，国家"985工程"和"211工程"重点建设高校，2017年入选国家"双一流"建设A类高校。学校办学历史悠久，最早可追溯至1918年创建的广东省立第一甲种工业学校。经过一个多世纪的发展，华南理工大学已成为以工见长、多学科协调发展的综合性研究型大学。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">学科优势</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              华南理工大学在轻工技术与工程、建筑学、食品科学与工程、材料科学与工程、化学工程与技术等学科领域位居全国顶尖水平。学校的轻工技术与工程学科在教育部学科评估中荣获A+等级，与清华大学、浙江大学等顶尖名校比肩。工程学、材料科学、化学、农业科学、计算机科学等14个学科进入ESI全球排名前1%，展现出强大的学科实力和国际影响力。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">师资力量</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              学校现有专任教师2400余人，其中两院院士15人，外籍院士3人，拥有国家级高层次人才150余人。专任教师中正高级职称700余人，副高级职称900余人，博士生导师700余人。多位教师获得全国教学名师、全国优秀教师等荣誉称号，师资队伍整体水平位居全国高校前列，为研究生培养提供了坚实的师资保障。
+            </p>
+          </div>
+        </div>
+        <div class="space-y-6 overflow-auto">
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">科研实力</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              华南理工大学科研实力卓越，拥有发光材料与器件制国家重点实验室、国家人体组织功能重建工程技术研究中心等一批国家级科研平台。近年来，学校承担国家重点研发计划、国家自然科学基金重大项目等千余项，累计科研经费超过百亿元。在Science、Nature等国际顶级学术期刊发表论文数百篇，科研成果转化成效显著。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">就业前景</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              华南理工大学毕业生以其扎实的专业功底和创新能力深受用人单位青睐，研究生就业率长期保持在99%以上。毕业生主要进入华为、腾讯、阿里巴巴、百度、中国建筑、中国石化等世界500强企业及知名科研院所。学校位于粤港澳大湾区核心城市广州，区位优势明显，为毕业生提供了广阔的发展平台和丰厚的薪酬待遇。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">报考建议</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              作为985工程高校，华南理工大学报考竞争较为激烈，尤其是建筑学、计算机科学、电子信息等热门专业。建议考生初试成绩达到360分以上会更有把握，优势学科竞争更加激烈。学校重视考生的综合素质，复试中会考察专业基础、科研潜力和创新能力。广州生活成本相对适中，是考研求学的理想选择。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(6, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="absolute inset-0 bg-white"></div>
+    <div class="relative z-10 h-full px-20 py-12">
+      <div class="flex items-center mb-6">
+        <div class="w-2 h-12 bg-black mr-6"></div>
+        <h2 class="text-4xl font-bold" style="font-family: 'Microsoft YaHei', sans-serif;">
+          太原理工大学
+        </h2>
+        <span class="ml-6 px-4 py-2 border-2 border-black text-lg" style="font-family: 'Microsoft YaHei', sans-serif;">
+          双一流建设高校 · 国家重点大学
+        </span>
+      </div>
+      <div class="w-full h-0.5 bg-gray-200 mb-8"></div>
+      <div class="grid grid-cols-2 gap-12 h-[calc(100%-140px)]">
+        <div class="space-y-6 overflow-auto">
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">学校概况</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              太原理工大学坐落于山西省太原市，是国家"双一流"建设高校、教育部本科教学工作水平评估优秀高校。学校前身是创立于1902年的山西大学堂西学专斋，是我国最早成立的三所国立大学之一。经过百余年的薪火传承，学校已发展成为一所以工为主、理工结合、多学科协调发展的综合性研究型大学，在国内外享有良好声誉。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">学科优势</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              太原理工大学的化学工程与技术、材料科学与工程、矿业工程、机械工程等学科在国内外具有重要影响力。化学工程与技术学科在教育部学科评估中获评B+等级，材料科学、工程学等学科进入ESI全球排名前1%。学校拥有多个国家级特色专业和省级重点学科，在煤炭清洁高效利用、新材料、智能制造等领域形成了鲜明的学科特色。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">师资力量</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              学校现有教职工5000余人，其中专任教师2800余人，教授、副教授1500余人，博士生导师300余人。拥有中国工程院院士、长江学者、国家杰出青年科学基金获得者等国家级高层次人才50余人，双聘院士15人。教师队伍中有国家百千万人才工程入选者、国家有突出贡献的中青年专家等优秀人才，师资力量雄厚。
+            </p>
+          </div>
+        </div>
+        <div class="space-y-6 overflow-auto">
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">科研实力</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              太原理工大学科研实力强劲，拥有省部共建国家重点实验室、国家工程技术研究中心等多个高水平科研平台。学校在煤炭高效清洁利用、新材料研发、智能制造、信息技术等领域承担了大量国家级科研项目，取得了一系列重大科研成果。近年来，学校积极融入国家战略，在黄河流域生态保护、碳达峰碳中和等领域开展前瞻性研究。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">就业前景</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              太原理工大学研究生就业形势良好，就业率长期保持在95%以上。毕业生主要进入能源电力、机械装备、电子信息、建筑化工等行业的重点企业和科研院所。学校与山西焦煤、同煤集团、晋能控股等山西省重点企业建立了长期合作关系，为毕业生提供了稳定的就业渠道。太原作为中部地区重要城市，正在大力推进产业转型升级，为毕业生提供了新的发展机遇。
+            </p>
+          </div>
+          <div>
+            <h3 class="text-2xl font-bold mb-3" style="font-family: 'Microsoft YaHei', sans-serif;">报考建议</h3>
+            <p class="text-lg leading-relaxed" style="font-family: 'Microsoft YaHei', sans-serif;">
+              太原理工作为双一流建设高校，整体报考难度适中，性价比较高。建议工科类考生重点关注化学工程、材料科学、机械工程等优势专业，复试分数线相对稳定，初试成绩达到300分以上具有一定的竞争力。学校注重考察考生的专业基础和科研潜力，复试中会涉及专业知识和实验技能考核。相比北上广深，太原生活成本较低，是追求稳定发展的考生的良好选择。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(7, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="w-full h-full bg-white p-12 overflow-y-auto" style="font-family: 'Microsoft YaHei', sans-serif; color: #000000;">
+      <h1 class="text-3xl font-bold mb-2 text-black">苏州大学 | 苏大</h1>
+      <div class="text-sm text-gray-500 mb-4">211工程 · 双一流 · 江苏省属重点综合性大学</div>
+      <div class="border-b border-gray-200 mb-4"></div>
+
+      <div class="space-y-3 text-sm leading-relaxed">
+        <div>
+          <span class="font-bold text-black">【院校层次定位】</span>
+          苏州大学是江苏省省属重点综合性大学，由江苏省人民政府与教育部、国防科技工业局共建，入选国家"211工程"重点建设高校、"双一流"建设高校以及"2011计划"首批牵头高校。学校前身为1900年创办的东吴大学，是中国最早以现代大学学科体系举办的大学之一，在法学、药学、材料科学、计算机科学等学科领域具有较高声誉。苏州大学在电子信息与通信工程领域属于211高校中等偏上水平，信息与通信工程学科在教育部第四轮学科评估中获评B-等级（全国前40%），与合肥工业大学、中国矿业大学、河海大学、中山大学等高校处于同一层次。苏州作为新一线城市、经济发达，苏大每年吸引了大量考生报考，考研热度属于211高校第一梯队，竞争比较激烈。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【地理位置详细介绍】</span>
+          苏州大学坐落于江苏省苏州市，校园分为天赐庄校区（位于干将东路333号）、独墅湖校区（位于仁爱路199号）、阳澄湖校区（位于济学路8号）三个主要校区，研究生主要在独墅湖校区和天赐庄校区学习生活。苏州市是江苏省经济最发达的城市、长三角城市群核心城市之一、全国最强地级市，2023年GDP位居全国第六（仅次于上海、北京、深圳、重庆、广州）。苏州电子信息产业发达，拥有全球最大的电子信息产业集群，聚集了和舰科技、纬创资通、三星电子、友达光电、欧朗电子等大量外资和本土电子企业，被誉为"电子信息产业硅谷"。苏州还大力发展生物医药、人工智能、纳米技术等战略性新兴产业，形成了多元化的产业结构。从交通区位来看，苏州到上海高铁仅需25分钟，到南京仅需1小时，完全融入长三角一小时经济圈。苏州生活成本在长三角城市中属于中等水平，房租和房价比上海、南京低很多，是性价比较高的读研城市。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【电子通信相关专业设置】</span>
+          苏州大学电子信息与通信工程相关研究生培养主要依托电子信息学院、机电工程学院、计算机科学与技术学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、837信号系统与数字逻辑）、080300光学工程、085400电子信息（专业硕士，包含新一代电子信息技术、通信工程、光电信息工程、人工智能等方向，初试科目：政治、英语二、数学二、837信号系统与数字逻辑或872数据结构与操作系统）。研究生方向涵盖光通信与光网络、信号与信息处理、图像处理与机器视觉、嵌入式系统、物联网技术、人工智能应用等。根据2024年招生数据，苏州大学电子信息学院拟招收硕士研究生约200人左右，其中学硕约60人、专硕约140人，招生规模较大。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【学科评估等级、专业实力排名】</span>
+          在教育部全国第四轮学科评估中，苏州大学信息与通信工程学科评估结果为B-等级（全国前40%），与合肥工业大学、中国矿业大学、河海大学、中山大学等高校处于同一层次。在江苏省内，苏大的信息与通信工程学科实力位居前列，仅次于东南大学、南京大学、南京航空航天大学、南京理工大学等工科强校。苏州大学电子信息学院拥有"江苏省新型光学重点实验室"、"苏州市光通信与光传感重点实验室"等科研平台，承担了国家自然科学基金、江苏省重点研发计划等科研项目。学院在光纤通信、光电器件、信号处理等方向有一定的科研积累，与苏州本地光电通信企业有产学研合作关系。相比同城985高校东南大学，苏大在电子信息领域的学科实力和科研资源略逊一筹，但在211高校中仍属于中上水平。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【院校核心亮点、特色方向】</span>
+          苏州大学电子信息类专业具有以下特色和亮点：第一，地处长三角电子信息产业核心区域，苏州工业园区聚集了大量外资和本土电子企业，实习和就业机会极为丰富；第二，学校综合实力较强，在江苏省内就业认可度高，特别是在苏州本地具有独特优势；第三，苏大招生规模大、方向多，为考生提供了丰富的选择；第四，保护第一志愿考生，不接受校外调剂（特殊情况除外）；第五，专业课难度适中，837信号系统与数字逻辑复习资料齐全；第六，苏州城市环境优美、生活便利，是宜居的读研城市；第七，苏大与新加坡国立大学、南洋理工大学等海外名校有合作项目，学生有机会申请海外交换或继续深造。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考优势、保护一志愿、是否歧视双非、复试特点】</span>
+          苏州大学考研报考优势主要体现在以下几个方面：首先，苏大在江苏省内知名度高、就业认可度好，特别是苏州本地企业青睐苏大毕业生；其次，学校招生规模大、机会多，每年都有大量调剂名额（但建议优先第一志愿报考）；第三，专业课难度适中，837信号系统与数字逻辑历年真题重复率较高；第四，学校保护第一志愿考生。关于是否歧视双非，苏大整体来说对本科背景的包容性较好，双非考生占比超过70%，导师对双非考生接受度较高，但需要注意的是，苏大近年来报考热度很高，热门方向的竞争也比较激烈，双非考生需要争取较高的初试分数才能增加录取概率。复试内容通常包括专业课笔试、英语口语面试、综合面试，部分方向会有编程测试或实验技能考核。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【毕业生主要就业方向、就业企业】</span>
+          苏州大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：外资电子企业（三星电子苏州、友达光电、纬创资通、日立电线等）、通信设备企业（华为苏州、中兴苏州、爱立信南京分公司等）、互联网与软件（阿里巴巴苏州、腾讯苏州、微软苏州、同程旅游等）、半导体与集成电路（和舰科技、晶方半导体、敏芯微电子等）、汽车电子（博世汽车部件苏州、德尔福苏州等）、国有企业（江苏移动、江苏联通、中国电子科技集团驻苏单位等）。就业地域分布上，约50-60%的毕业生选择留在江苏省内发展，其中苏州和南京是主要就业城市，约30%前往上海及周边地区发展。苏州电子企业薪资水平在长三角属于中等偏上，相比上海略低但生活成本也低。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</span>
+          苏州大学电子信息类硕士毕业生平均起薪水平在9000-14000元/月之间（年薪约11-17万元），具体薪资取决于就业去向和个人能力。从就业单位性质来看：外资企业（如三星、友达光电、纬创资通等）起薪约10-15万元，福利较好、工作相对稳定；私营龙头企业（如华为苏州、阿里苏州等）起薪约15-22万元，但工作强度较大；普通私营企业起薪约9-13万元；国有企业（如运营商省公司、中电科驻苏单位等）年薪约10-14万元，福利完善、工作稳定。整体来看，苏大硕士毕业生在苏州及长三角地区具有较强的竞争力，起薪水平在211高校中属于中等偏上。苏州房价和房租相比上海、南京低不少，综合考虑生活成本后性价比很高。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考难度整体评价、适合什么样基础的考生】</span>
+          苏州大学电子信息类专业考研难度在211高校中属于中等偏上水平，竞争比较激烈但相比南京大学、东南大学等985高校仍然相对容易。适合以下类型的考生报考：第一类，本科来自一本或重点本科院校的学生，基础扎实、复习时间充裕；第二类，有志于在苏州及长三角地区发展、进入优质企业工作的考生；第三类，希望进入211高校深造、获取高学历含金量但又不想竞争太过激烈的考生；第四类，本科期间有项目经验或竞赛获奖的考生。需要注意的是，苏大近年来报考热度持续上升，2024年部分方向复试线超过340分，建议早做准备、充分复习，尤其要重视数学和专业课的备考。
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(8, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="w-full h-full bg-white p-12 overflow-y-auto" style="font-family: 'Microsoft YaHei', sans-serif; color: #000000;">
+      <h1 class="text-3xl font-bold mb-2 text-black">武汉理工大学 | 武汉理工</h1>
+      <div class="text-sm text-gray-500 mb-4">211工程 · 双一流 · 教育部直属全国重点大学</div>
+      <div class="border-b border-gray-200 mb-4"></div>
+
+      <div class="space-y-3 text-sm leading-relaxed">
+        <div>
+          <span class="font-bold text-black">【院校层次定位】</span>
+          武汉理工大学是教育部直属全国重点大学，由教育部、交通运输部、国家国防科技工业局、湖北省人民政府共建，入选国家"211工程"重点建设高校、"双一流"建设高校。学校由原武汉工业大学、武汉交通科技大学、武汉汽车工业大学于2000年合并组建，在材料科学与工程、船舶与海洋工程、交通运输工程等学科领域具有突出优势，被誉为"建材建工、交通、汽车"三大行业人才培养的摇篮。武汉理工大学在电子信息与通信工程领域属于211高校中等偏上水平，信息与通信工程学科在教育部第四轮学科评估中获评B等级（全国前30%），与深圳大学、武汉大学、南昌大学、华中师范大学等处于同一层次。考研热度属于211高校第二梯队，竞争相对适中。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【地理位置详细介绍】</span>
+          武汉理工大学坐落于湖北省省会武汉市，校园分为马房山校区（位于洪山区珞狮路122号）和余家头校区（位于武昌区和平大道1178号）两个主要校区，研究生主要在马房山校区学习生活。武汉市是湖北省省会、长江中游城市群核心城市、国家中心城市、全国重要的工业基地和科教基地。武汉电子信息产业近年来发展迅速，形成了以光谷（东湖高新区）为代表的电子信息产业集群，聚集了烽火通信、光迅科技、长江存储、武汉新芯、华为武汉研究所等一批知名企业，被誉为"中国光谷"。武汉还是中部地区最大的交通枢纽，京广高铁、沪汉蓉高铁在此交汇，天河国际机场是中部地区最大的航空枢纽。从生活成本来看，武汉房租和房价在省会城市中属于中等偏低水平，生活成本相对较低，是一个性价比较高的读研城市。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【电子通信相关专业设置】</span>
+          武汉理工大学电子信息与通信工程相关研究生培养主要依托信息工程学院、自动化学院、电气工程学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、855信号与系统）、080400仪器科学与技术、085400电子信息（专业硕士，包含电子与通信工程、仪器仪表工程等方向，初试科目：政治、英语二、数学二、855信号与系统或851电路）。研究生方向涵盖光纤通信与光网络、信号处理与模式识别、通信系统与网络、物联网与传感器、雷达与导航等。根据2024年招生数据，信息工程学院拟招收硕士研究生约180人左右，其中学硕约70人、专硕约110人，招生规模在211高校中属于中等偏上。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【学科评估等级、专业实力排名】</span>
+          在教育部全国第四轮学科评估中，武汉理工大学信息与通信工程学科评估结果为B等级（全国前30%），与深圳大学、武汉大学、南昌大学、华中师范大学等处于同一层次，超过了部分211高校。在湖北省内，武理工的信息与通信工程学科实力位居前列，仅次于华中科技大学、武汉大学等985高校。武汉理工大学信息工程学院拥有"光纤传感技术国家工程实验室"、"宽带无线通信与传感网络技术教育部重点实验室"等高水平科研平台，承担了国家自然科学基金、国家863计划等大量科研项目。学院在光纤传感、无线通信、信号处理等方向有较强的科研积累，与华为、中兴、烽火通信等企业有紧密的产学研合作关系。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【院校核心亮点、特色方向】</span>
+          武汉理工大学电子信息类专业具有以下特色和亮点：第一，学校在光纤传感与光网络领域具有国内领先地位，光纤传感技术国家工程实验室是国内该领域唯一的国家级研究平台；第二，学校依托"建材建工、交通、汽车"三大行业背景，在智能交通、车联网、汽车电子等领域有独特优势；第三，地处武汉光谷核心区域，光谷聚集了大量通信和光电企业，实习和就业机会丰富；第四，专业课难度适中，855信号与系统复习资料齐全；第五，学校保护第一志愿考生，复试比例合理（通常1:1.2）；第六，武汉生活成本低，是性价比较高的读研城市。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考优势、保护一志愿、是否歧视双非、复试特点】</span>
+          武汉理工大学考研报考优势主要体现在以下几个方面：首先，武理在中部地区知名度高、就业认可度好，特别是武汉本地及周边企业青睐武理毕业生；其次，专业课难度适中，855信号与系统历年真题重复率较高，复习难度不大；第三，学校招生规模较大、机会较多；第四，复试分数线通常执行国家线或略高于国家线，上岸难度相对较低。关于是否歧视双非，武理对本科背景的包容性较强，双非考生占比很大，导师对双非考生接受度较高，初试成绩在录取中占比较大，只要初试分数够高就有很大机会被录取。复试内容通常包括专业课笔试（信号与系统或电路理论）、英语口语面试、综合面试，复试淘汰比例不高。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【毕业生主要就业方向、就业企业】</span>
+          武汉理工大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：通信设备与系统（华为武汉、中兴武汉、烽火通信、光迅科技等）、光电子企业（长江存储、武汉新芯、华星光电、天马微电子等）、汽车电子（东风汽车、比亚迪武汉、吉利汽车研究院等）、互联网与软件（字节跳动武汉、腾讯武汉、阿里巴巴武汉等）、运营商（湖北移动、湖北联通、湖北电信等）、科研院所（中船重工701所、712所等）。就业地域分布上，约50%的毕业生选择留在湖北省内发展，其中武汉是主要就业城市，约30%前往长三角和珠三角地区发展。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</span>
+          武汉理工大学电子信息类硕士毕业生平均起薪水平在8000-13000元/月之间（年薪约10-16万元），具体薪资取决于就业去向和个人能力。从就业单位性质来看：龙头企业（如华为武汉、中兴、字节跳动等）起薪约15-25万元；普通私营企业起薪约10-14万元；国有企业（如运营商省公司、中船重工研究所等）年薪约10-14万元，福利完善、工作稳定。武汉生活成本较低，房价和房租在全国省会城市中属于偏低水平，综合考虑生活质量较高。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考难度整体评价、适合什么样基础的考生】</span>
+          武汉理工大学电子信息类专业考研难度在211高校中属于中等水平，是性价比较高的考研目标院校。适合以下类型的考生报考：第一类，本科来自普通本科院校的学生，基础一般但愿意努力备考；第二类，有志于在武汉及中部地区发展的考生；第三类，希望进入211高校深造、提升学历层次的考生；第四类，预算有限、希望降低读研生活成本的考生。需要注意的是，武理在电子信息领域不是顶尖水平，如果目标是进入顶级科技企业或继续读博深造，可能需要额外努力。
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(9, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="w-full h-full bg-white p-12 overflow-y-auto" style="font-family: 'Microsoft YaHei', sans-serif; color: #000000;">
+      <h1 class="text-3xl font-bold mb-2 text-black">安徽大学 | 安大</h1>
+      <div class="text-sm text-gray-500 mb-4">211工程 · 双一流 · 安徽省属重点综合性大学</div>
+      <div class="border-b border-gray-200 mb-4"></div>
+
+      <div class="space-y-3 text-sm leading-relaxed">
+        <div>
+          <span class="font-bold text-black">【院校层次定位】</span>
+          安徽大学是安徽省属重点综合性大学，由安徽省人民政府与教育部共建，入选国家"211工程"重点建设高校、"双一流"建设高校。学校1928年创办于安庆，是安徽省第一所拥有文、理、工、史、哲、经、法、医、管理、艺术等学科齐全的综合性大学。安徽大学在材料科学、化学、汉语言文学、法学、计算机科学等学科领域具有较高水平。在电子信息与通信工程领域，安大属于211高校中的中等偏下水平，学科评估结果为C+等级（第四轮评估未进入B类），在安徽省内略逊于中国科学技术大学和合肥工业大学。考研热度属于211高校第三梯队，竞争相对不激烈，是性价比较高的考研目标院校。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【地理位置详细介绍】</span>
+          安徽大学坐落于安徽省省会合肥市，校园分为龙河校区（位于肥西路3号）和磬苑校区（位于经济技术开发区九龙路111号）两个主要校区，研究生主要在磬苑校区学习生活。合肥市是安徽省省会、长三角城市群副中心城市，近年来依托"合肥综合性国家科学中心"建设大力发展集成电路、人工智能、新型显示等战略性新兴产业，已形成"芯屏汽合"的产业格局（芯片+屏幕+新能源汽车+集成电路）。合肥拥有京东方、蔚来汽车、科大讯飞、长鑫存储、晶合集成等知名科技企业，为电子信息类专业毕业生提供了丰富的实习和就业机会。从交通区位来看，合肥到南京仅需1小时、到上海仅需2小时，属于长三角经济圈核心辐射范围。合肥生活成本相对较低，房价和租金在长三角城市中处于中等偏低水平，对于预算有限的考生来说是性价比较高的选择。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【电子通信相关专业设置】</span>
+          安徽大学电子信息与通信工程相关研究生培养主要依托电子信息工程学院、电气工程与自动化学院、计算机科学与技术学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程、080400仪器科学与技术、085400电子信息（专业硕士，包含新一代电子信息技术、通信工程、光电信息工程等方向）。研究生方向涵盖信号与信息处理、通信系统与网络、光电检测技术、嵌入式系统等。根据2024年招生数据，电子信息工程学院拟招收硕士研究生约150人左右，招生规模中等。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【学科评估等级、专业实力排名】</span>
+          在教育部全国第四轮学科评估中，安徽大学信息与通信工程学科评估结果为C+等级（全国50-60%区间），与太原理工大学、沈阳航空航天大学等处于同一层次。在安徽省内，安大的信息与通信工程学科实力位居第三，次于中国科学技术大学和合肥工业大学。安徽大学电子信息工程学院拥有"光电转换与探测"安徽省重点实验室等科研平台，在光电信息处理、信号处理等方向有一定的科研积累。虽然学科评估等级不算高，但安大在安徽省内电子信息领域的就业认可度较好，毕业生在合肥本地就业具有一定的优势。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【院校核心亮点、特色方向】</span>
+          安徽大学电子信息类专业的特色和亮点：第一，合肥是近年来发展最快的省会城市之一，电子信息产业蓬勃发展，京东方、长鑫存储、科大讯飞等企业为毕业生提供了大量就业机会；第二，学校保护第一志愿考生，复试分数线通常执行国家线，上岸难度相对较低；第三，专业课难度适中，复习资料较为齐全；第四，安大在安徽省内就业认可度高，特别是在合肥本地企业中有良好口碑；第五，生活成本低、读研性价比高，合肥房租和房价在长三角城市中处于较低水平；第六，安徽大学作为省属综合性大学，学科门类齐全，学生可以选修其他学科课程拓宽知识面。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考优势、保护一志愿、是否歧视双非、复试特点】</span>
+          安徽大学考研报考优势主要体现在211高校中上岸难度较低，复试分数线通常执行国家线，对双非考生包容度较高，复试比例合理（通常1:1.2）。安大整体来说对本科背景的包容性较强，双非考生占比较大，导师对双非考生接受度较高，只要初试成绩达标、复试表现正常即可被录取。复试内容通常包括专业课笔试、英语口语面试、综合面试，淘汰比例不高。安大的保护一志愿政策执行较好，第一志愿考生在同等条件下优先录取。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【毕业生主要就业方向、就业企业】</span>
+          安徽大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：合肥本地科技企业（京东方、科大讯飞、长鑫存储、晶合集成等），这些企业近年来在合肥快速扩张，对电子信息类人才需求量大；通信设备商（华为、中兴等在合肥设有研发机构）；运营商省公司（安徽移动、安徽联通、安徽电信等）；科研院所（中科院合肥物质科学研究院、中国电子科技集团驻皖单位等）；其他长三角城市企业。就业地域分布上，约40-50%的毕业生选择留在安徽省内发展（主要在合肥），约30%前往长三角其他城市（上海、南京、杭州、苏州等），其余分散在全国各地。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</span>
+          安徽大学电子信息类硕士毕业生平均起薪水平在7000-11000元/月之间（年薪约8-13万元），在211高校中属于中等偏低水平，但合肥生活成本低，性价比不错。从就业单位性质来看：国有企业（如运营商省公司、中电科驻皖单位等）年薪约8-12万元，福利完善、工作稳定；私营企业（如科大讯飞、京东方等合肥本地企业）起薪约8-12万元，部分龙头企业可达12-15万元；科研院所年薪约10-15万元。合肥房价和租金相对较低，综合考虑生活成本后，实际生活质量并不差。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考难度整体评价、适合什么样基础的考生】</span>
+          安徽大学考研难度在211高校中属于较低水平，适合基础一般、想进211的考生，以及想在合肥发展的考生。具体来说适合以下类型的考生报考：第一类，本科来自普通一本或二本院校，希望进入211高校深造、提升学历层次的考生；第二类，基础一般、复习时间有限、追求稳妥上岸的考生；第三类，有志于在合肥及长三角地区发展的考生，合肥近年来发展迅速，就业机会越来越多；第四类，预算有限、希望降低读研生活成本的考生。需要注意的是，安大在电子信息领域的学科实力相对有限，如果希望去一线城市发展或进入顶级科技企业，可能需要付出更多努力或考虑其他目标院校。
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(10, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="w-full h-full bg-white p-12 overflow-y-auto" style="font-family: 'Microsoft YaHei', sans-serif; color: #000000;">
+      <h1 class="text-3xl font-bold mb-2 text-black">中国矿业大学 | 矿大</h1>
+      <div class="text-sm text-gray-500 mb-4">211工程 · 985优势学科创新平台 · 双一流 · 教育部直属全国重点大学</div>
+      <div class="border-b border-gray-200 mb-4"></div>
+
+      <div class="space-y-3 text-sm leading-relaxed">
+        <div>
+          <span class="font-bold text-black">【院校层次定位】</span>
+          中国矿业大学是教育部直属全国重点大学，由教育部、江苏省人民政府、国家安全生产监督管理总局共建，入选国家"211工程"重点建设高校、"985工程优势学科创新平台"建设高校、"双一流"建设高校。学校1909年创办于河南焦作，是中国煤炭高等教育的发源地，在矿业工程、安全科学与工程、地质资源与地质工程等学科领域具有世界领先水平。在电子信息与通信工程领域，矿大属于211高校中等偏上水平，信息与通信工程学科在教育部第四轮学科评估中获评B-等级（全国前40%），与合肥工业大学、苏州大学、河海大学等处于同一层次。考研热度属于211高校第二梯队，竞争相对适中。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【地理位置详细介绍】</span>
+          中国矿业大学坐落于江苏省徐州市，目前有南湖校区（位于大学路1号）和文昌校区（位于明珠路4号）两个校区，研究生主要在南湖校区学习生活。徐州市是江苏省北部重要城市、淮海经济区中心城市、国家历史文化名城。徐州市近年来大力发展装备制造、新能源、集成电路等战略性新兴产业，但整体电子信息产业规模有限。相比南京、苏州等城市，徐州的知名科技企业较少，相关就业机会主要集中在国有企业（如中煤科工集团驻徐单位、徐州工程机械集团等）和少量本地企业。但徐州地理位置优越，地处京沪高铁和陆桥通道交汇处，到南京仅需1.5小时、到济南和郑州仅需1.5小时、到北京和上海仅需2.5小时。徐州生活成本低，房价和房租在江苏省属于偏低水平，是读研经济压力较小的选择。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【电子通信相关专业设置】</span>
+          中国矿业大学电子信息与通信工程相关研究生培养主要依托信息与控制工程学院、机电工程学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、833信号与线性系统）、085400电子信息（专业硕士，初试科目：政治、英语二、数学二、833信号与线性系统）。研究生方向涵盖信号与信息处理、通信系统与网络、矿山物联网与智能化、矿山安全监测与控制等。根据2024年招生数据，信息与控制工程学院拟招收硕士研究生约160人左右，招生规模中等。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【学科评估等级、专业实力排名】</span>
+          在教育部全国第四轮学科评估中，中国矿业大学信息与通信工程学科评估结果为B-等级（全国前40%），与合肥工业大学、苏州大学、河海大学、中山大学等处于同一层次。中国矿业大学信息与控制工程学院拥有"矿山互联网应用技术"国家地方联合工程研究中心、江苏省感知矿山物联网工程技术研究中心等科研平台。学院在矿山物联网、矿山安全监测、信号处理等方向有较强的科研积累，与煤炭行业企业有紧密的产学研合作关系。在矿业安全物联网领域，矿大具有国内领先地位，这是区别于其他高校电子信息类专业的独特优势。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【院校核心亮点、特色方向】</span>
+          中国矿业大学电子信息类专业的特色和亮点：第一，学校在矿山物联网、矿山智能化领域具有独特优势，是国内该领域的领军高校，矿山安全监测方向的毕业生可进入煤炭行业国企和安监部门，就业稳定；第二，矿业安全物联网方向就业方向明确，对口就业率高，毕业生可进入中煤科工集团、煤炭科学研究总院、各地煤监局等大型国企；第三，专业课难度适中，833信号与线性系统复习资料齐全，历年真题重复率较高；第四，学校保护第一志愿考生，复试比例合理（通常1:1.2），淘汰比例不高；第五，徐州生活成本低，读研经济压力小，房价和房租在江苏省属于偏低水平；第六，矿大虽然是行业特色型高校，但电子信息类专业的通用性仍然较强，毕业生也可以选择进入通信设备商、互联网企业等非煤炭行业就业。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考优势、保护一志愿、是否歧视双非、复试特点】</span>
+          矿大考研报考优势主要体现在211高校中上岸难度相对较低，复试分数线通常执行国家线或略高于国家线，对双非考生包容度较高，复试比例通常为1:1.2，淘汰比例不高。关于是否歧视双非，矿大整体来说对本科背景的包容性较强，双非考生占比较大，导师对双非考生接受度较高，只要初试成绩达标、复试表现正常即可被录取。复试内容通常包括专业课笔试（信号与线性系统）、英语口语面试、综合面试。需要注意的是，矿大在矿山物联网和矿山智能化方向有较强的行业特色，如果考生对煤炭行业不感兴趣，也可以选择通信系统与网络、信号处理等通用方向。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【毕业生主要就业方向、就业企业】</span>
+          中国矿业大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：煤炭行业国企（中煤科工集团、煤炭科学研究总院、各地煤监局、煤炭企业信息化部门等），这是矿大毕业生的传统就业方向，就业稳定、福利较好；通信设备商（华为、中兴等），部分毕业生凭借扎实的专业基础也能进入顶级通信企业；运营商省公司（江苏移动、江苏联通等）；科研院所（中科院相关研究所、中国电子科技集团等）；其他电子信息和互联网企业。就业地域分布上，约30-40%的毕业生选择留在江苏省内发展（主要在徐州、南京），约30%前往长三角其他城市，约20%前往北京及周边地区发展。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</span>
+          中国矿业大学电子信息类硕士毕业生平均起薪水平在7500-12000元/月之间（年薪约9-14万元），在211高校中属于中等偏低水平，但徐州生活成本极低，实际生活质量不差。从就业单位性质来看：煤炭行业国企（中煤科工集团等）年薪约9-13万元，福利完善、工作稳定，但对口岗位可能需要下矿区；通信设备商（华为、中兴等）起薪约15-22万元，但竞争激烈；运营商省公司年薪约8-12万元，福利较好但薪资增长缓慢；科研院所年薪约10-15万元。整体来看，矿大毕业生如果进入煤炭行业国企，就业稳定性高但薪资水平一般；如果进入通信设备商或互联网企业，薪资水平与同类211高校毕业生相当。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考难度整体评价、适合什么样基础的考生】</span>
+          中国矿业大学考研难度在211高校中属于中等偏低水平，适合基础一般、追求稳妥上岸的考生，以及不介意在二三线城市发展的考生。具体来说适合以下类型的考生报考：第一类，本科来自普通一本或二本院校，希望进入211高校深造、提升学历层次的考生；第二类，基础一般、复习时间有限、追求稳妥上岸的考生；第三类，对矿山物联网、矿山智能化等矿业信息化方向感兴趣的考生；第四类，预算有限、希望降低读研生活成本的考生；第五类，不介意在徐州或二三线城市发展的考生。需要注意的是，矿大在电子信息领域的学科实力虽然不算顶尖，但在矿山物联网方向有独特优势，如果考生对煤炭行业有排斥心理，建议选择通用性更强的方向或考虑其他目标院校。
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(11, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="w-full h-full bg-white p-12 overflow-y-auto" style="font-family: 'Microsoft YaHei', sans-serif; color: #000000;">
+      <h1 class="text-3xl font-bold mb-2 text-black">北京理工大学 | 北理</h1>
+      <div class="text-sm text-gray-500 mb-4">985工程 · 211工程 · 双一流A类 · 工信部直属 · 国防七子</div>
+      <div class="border-b border-gray-200 mb-4"></div>
+
+      <div class="space-y-3 text-sm leading-relaxed">
+        <div>
+          <span class="font-bold text-black">【院校层次定位】</span>
+          北京理工大学是工业和信息化部直属的全国重点大学，入选国家"985工程"重点建设高校、"211工程"重点建设高校、"双一流"建设高校A类行列，是新中国第一所国防工业院校。学校前身为1940年创办的延安自然科学院，被誉为"红色国防工程师的摇篮"。北理工在兵器科学与技术、机械工程、光学工程、信息与通信工程等学科领域具有国内领先水平，是著名的"国防七子"之一。在电子信息与通信工程领域，北理工属于985高校中等偏上水平，信息与通信工程学科在教育部第四轮学科评估中获评A-等级（全国前10%），与北京航空航天大学、哈尔滨工业大学、东南大学等处于同一层次，是国内电子信息类学科实力最强的高校之一。考研热度属于985高校第一梯队，竞争非常激烈。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【地理位置详细介绍】</span>
+          北京理工大学坐落于首都北京市，校园分为中关村校区（位于海淀区中关村南大街5号）和良乡校区（位于房山区良乡大学城），研究生主要在中关村校区学习生活。北京市是中华人民共和国首都、全国政治中心、文化中心、国际交往中心、科技创新中心，是世界著名的历史古城和现代化国际大都市。北京市电子信息产业发达，聚集了百度、字节跳动、小米、联想、京东等大量知名科技企业，以及中国电子科技集团、中国航天科工集团、中国科学院等顶级科研院所。北京市高校云集、教育资源丰富，是全国研究生报考最热门城市。从生活成本来看，北京房租和房价位居全国前列，生活成本较高，但北理工研究生可以申请宿舍，能节省一部分开支。中关村校区位于海淀区核心地段，靠近中关村科技园和大量互联网企业总部，地理位置极为优越。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【电子通信相关专业设置】</span>
+          北京理工大学电子信息与通信工程相关研究生培养主要依托信息与电子学院、集成电路与电子学院、自动化学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、882电子线路基础或826信号处理导论）、080900电子科学与技术、085400电子信息（专业硕士，包含新一代电子信息技术、通信工程、集成电路工程等方向）。研究生方向涵盖雷达探测与成像、精确制导与对抗、通信与信息系统、信号处理与识别、微波与天线技术、集成电路设计等。根据2024年招生数据，信息与电子学院拟招收硕士研究生约250人左右，招生规模较大。北理工的研究生培养注重理论与实践结合，学生有大量机会参与国防科研项目。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【学科评估等级、专业实力排名】</span>
+          在教育部全国第四轮学科评估中，北京理工大学信息与通信工程学科评估结果为A-等级（全国前10%），与北京航空航天大学、哈尔滨工业大学、东南大学、北京交通大学等处于同一层次，是国内电子信息类学科的顶尖高校之一。在985高校中，北理工的信息与通信工程学科实力位居前列，仅次于清华大学、上海交通大学、西安电子科技大学、国防科技大学等顶尖高校。北京理工大学信息与电子学院拥有"雷达技术"国家重点实验室、"毫米波"国家重点实验室等一批高水平科研平台，承担了国家自然科学基金、国家重大科技专项等大量科研项目。学院在雷达技术、通信对抗、微波技术、信号处理等方向有国内领先水平的科研成果，多项成果获得国家科技进步奖。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【院校核心亮点、特色方向】</span>
+          北京理工大学电子信息类专业的特色和亮点：第一，国防背景深厚，是"国防七子"之一，毕业生进入军工院所具有天然优势，中国电子科技集团、中国航天科工集团等军工单位每年大量招聘北理工毕业生；第二，雷达与微波技术是北理工的传统优势方向，与中国电科、航天科工等军工单位有紧密合作，学生有大量机会参与国防科研项目；第三，地处北京中关村核心区域，靠近顶级科研院所和科技企业，实习和就业资源顶级；第四，学校科研经费充足，2023年科研经费超过80亿元，为研究生提供良好的科研条件和实验设备；第五，学历含金量极高，985+学科A-的组合在就业市场具有明显优势，无论是进入企业还是继续深造都具有竞争力；第六，毕业生可以参加军队文职考试，进入军队系统工作，这是其他高校不具备的独特优势。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考优势、保护一志愿、是否歧视双非、复试特点】</span>
+          北京理工大学考研报考优势主要体现在学历含金量极高、就业前景极好，但竞争也非常激烈。关于是否歧视双非，北理工整体来说对本科背景有一定要求（毕竟是985+学科A-），但双非考生只要初试成绩足够高、复试表现优秀，仍然有机会被录取。初试成绩在最终录取中占比较大（通常60-70%），因此初试分数是硬道理。复试比例通常为1:1.2到1:1.3，淘汰比例可控。复试内容通常包括专业课笔试、英语口语面试、综合面试，面试中导师会关注考生的专业知识储备、科研潜力和综合素质。需要注意的是，北理工的热门方向（如雷达技术、通信对抗等国防方向）竞争更为激烈，建议考生根据自身实力合理选择方向。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【毕业生主要就业方向、就业企业】</span>
+          北京理工大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：顶级科研院所（中国电子科技集团各研究所、中国航天科工集团各研究院、中国科学院各研究所等），这是北理工毕业生最重要的就业去向，占比约30-40%；顶级科技企业（华为、中兴、百度、字节跳动、小米等），部分毕业生选择进入互联网和通信行业；军队系统（军官、军队文职等），北理工毕业生在军队文职考试中有明显优势；央企总部（中国电子、中国电科等央企总部设在北京，为毕业生提供了大量高质量就业机会）；继续深造（部分毕业生选择继续攻读博士学位或出国深造）。北京是央企总部聚集地，为北理工毕业生提供了全国最多的优质就业岗位。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</span>
+          北京理工大学电子信息类硕士毕业生平均起薪水平在15000-25000元/月之间（年薪约18-30万元），在985高校中属于中等偏上水平。从就业单位性质来看：顶级私企（华为、腾讯、百度、字节跳动等）起薪最高，2024年华为给985硕士的年薪普遍在25-45万元之间（SP offer可达50万+），互联网大厂年薪在20-35万元之间，但工作强度大、加班普遍；央企和军工院所（中电科、航天科工、中科院等）起薪约15-22万元，但福利极好（六险二金、住房公积金高、补充医疗保险等），部分研究所解决北京户口，长期发展前景好；军队文职起薪约12-18万元，但社会地位高、工作稳定。整体来看，北理工毕业生在北京就业具有明显优势，薪资水平在985高校中处于较高水平。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考难度整体评价、适合什么样基础的考生】</span>
+          北理工考研难度在985高校中属于较高水平，适合基础扎实、复习时间充裕、有志于进入国防军工系统或顶级科技企业的考生。具体来说适合以下类型的考生报考：第一类，本科来自985/211高校或重点本科院校的学生，基础非常扎实，数学和专业课能力突出；第二类，目标是进入国防军工系统工作的考生，北理工是"国防七子"之一，在这方面有天然优势；第三类，有志于在北京发展、获取顶级就业机会的考生；第四类，本科期间有项目经验、竞赛获奖或科研成果的考生，北理工导师比较看重科研潜力。需要注意的是，北理工2024年信息与通信工程学硕复试线约为350分，电子信息专硕复试线约为340分，预计竞争压力会进一步加大，建议早做准备、充分复习，尤其要重视数学和专业课的备考，初试成绩是进入复试的关键。
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(12, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg">
+    <div class="w-full h-full bg-white p-12 overflow-y-auto" style="font-family: 'Microsoft YaHei', sans-serif; color: #000000;">
+      <h1 class="text-3xl font-bold mb-2 text-black">南京信息工程大学 | 南信大</h1>
+      <div class="text-sm text-gray-500 mb-4">双一流 · 江苏省属重点大学 · 中国气象人才摇篮</div>
+      <div class="border-b border-gray-200 mb-4"></div>
+
+      <div class="space-y-3 text-sm leading-relaxed">
+        <div>
+          <span class="font-bold text-black">【院校层次定位】</span>
+          南京信息工程大学是江苏省省属重点大学，由江苏省人民政府、教育部、中国气象局、国家海洋局共建，入选国家"双一流"建设高校（大气科学为世界一流学科建设学科）。学校前身为1960年创办的南京大学气象学院，1963年独立建校为南京气象学院，1999年更名为南京信息工程大学。学校在气象学、大气科学、环境科学等学科领域具有世界领先水平，是"中国气象人才摇篮"。在电子信息与通信工程领域，南信大属于双非院校中偏上水平，第四轮学科评估中信息与通信工程未进入B类（估计为C+或C等级），但在气象信息化、气象雷达、气象卫星等领域有独特优势。考研热度属于双非院校中上水平。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【地理位置详细介绍】</span>
+          南京信息工程大学坐落于江苏省省会南京市，校园位于南京江北新区（原南京浦口区），环境优美、设施先进。南京市是江苏省省会、长三角城市群核心城市之一、全国重要的科研教育基地和综合交通枢纽。南京电子信息产业发达，拥有南京集成电路产业服务中心、南京软件谷、江北新区集成电路产业基地等产业平台，聚集了台积电南京、芯恩半导体、展讯通信、吉利汽车研究院等一批知名企业。南京高校云集、教育资源丰富，是全国重要的科教中心。从交通区位来看，南京是华东地区重要的交通枢纽，高铁网络四通八达，到上海仅需1小时、到杭州仅需1.5小时、到北京仅需3小时。南京生活成本在长三角城市中属于中等水平，比上海、杭州低不少，是一个性价比较高的读研城市。南信大位于江北新区，近年来江北新区发展迅速，大量集成电路和科技企业入驻，为毕业生提供了越来越多的就业机会。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【电子通信相关专业设置】</span>
+          南京信息工程大学电子信息与通信工程相关研究生培养主要依托电子与信息工程学院、自动化学院、计算机与软件学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程、085400电子信息（专业硕士，包含新一代电子信息技术、通信工程、光电信息工程等方向）。研究生方向涵盖气象雷达与信号处理、气象卫星通信、物联网与传感器网络、通信系统与网络等。根据2024年招生数据，电子与信息工程学院拟招收硕士研究生约120人左右，招生规模中等。南信大的电子信息类专业有一个显著特色，就是与气象信息化深度结合，学生有机会参与气象雷达信号处理、气象卫星数据传输等国家级科研项目，这是其他高校电子信息类专业不具备的独特优势。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【学科评估等级、专业实力排名】</span>
+          在教育部全国第四轮学科评估中，南京信息工程大学信息与通信工程学科评估结果未进入B类（估计为C+或C等级）。但学校在气象信息化领域具有独特优势，电子信息类研究生可以参与气象雷达信号处理、气象卫星数据传输等特色研究项目。南京信息工程大学电子与信息工程学院拥有"气象雷达信号处理"相关科研平台，与中国气象局、各省气象局有合作关系。在气象信息化方向，南信大具有国内领先地位，这是区别于其他高校电子信息类专业的鲜明特色。虽然通用信息与通信工程学科评估等级不高，但在气象信息化这一细分领域，南信大的专业实力和行业认可度是毋庸置疑的。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【院校核心亮点、特色方向】</span>
+          南京信息工程大学电子信息类专业的特色和亮点：第一，在气象信息化、气象雷达、气象卫星等领域具有独特优势，毕业生可进入气象系统工作（国家气象中心、各省气象局、市县气象局等），这是其他高校无法提供的就业渠道；第二，地处南京江北新区，靠近台积电南京、芯恩半导体等集成电路企业，近年来江北新区集成电路产业发展迅速，为毕业生提供了新的就业机会；第三，学校保护第一志愿考生，一志愿优先录取；第四，专业课难度适中，复习资料较为齐全；第五，双非院校中学科实力较强，性价比较高，上岸难度相对较低；第六，生活成本适中，南京江北新区房租相对较低；第七，南信大虽然不是211高校，但是"双一流"建设高校，学历含金量在气象系统内是顶级的。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考优势、保护一志愿、是否歧视双非、复试特点】</span>
+          南信大考研报考优势主要体现在双非院校中上岸难度相对较低，复试分数线通常执行国家线，对双非考生包容度高，复试比例通常为1:1.2。由于南信大本身也是双非院校，导师对双非考生的接受度非常高，不存在歧视双非的问题。初试成绩在录取中占比较大，只要初试分数够高、复试表现正常就有很大机会被录取。复试内容通常包括专业课笔试、英语口语面试、综合面试，淘汰比例不高。南信大的保护一志愿政策执行较好，第一志愿考生在同等条件下优先录取。需要注意的是，南信大近年来报考热度有所上升，但整体竞争仍然可控。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【毕业生主要就业方向、就业企业】</span>
+          南京信息工程大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：气象系统（国家气象中心、各省气象局、市县气象局、民航气象中心等），这是南信大毕业生最独特的就业渠道，气象系统工作稳定、福利好，属于体制内就业；通信设备商（华为、中兴等）；互联网企业（南京本地互联网企业如苏宁科技、满帮集团等）；半导体企业（台积电南京、芯恩半导体等江北新区集成电路企业）；运营商省公司（江苏移动、江苏联通等）；科研院所（中国气象局气象科学研究院、中科院相关研究所等）。就业地域分布上，约40-50%的毕业生选择留在江苏省内发展（主要在南京），约30%前往长三角其他城市，部分毕业生前往全国各地气象系统工作。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</span>
+          南京信息工程大学电子信息类硕士毕业生平均起薪水平在7000-11000元/月之间（年薪约8-13万元），在双非院校中属于中等偏上水平。从就业单位性质来看：气象系统（各级气象局、气象中心等）年薪约8-12万元，属于事业单位编制，工作稳定、福利完善，但薪资增长空间有限；私营企业（通信设备商、互联网企业等）起薪约9-15万元，工作强度因企业而异；半导体企业（台积电南京等）起薪约10-15万元，行业前景好；运营商省公司年薪约8-12万元，福利较好但薪资增长缓慢。整体来看，南信大毕业生如果能进入气象系统，工作稳定性和福利待遇是最大优势；如果进入通信和半导体行业，薪资水平与同类院校毕业生相当。
+        </div>
+
+        <div>
+          <span class="font-bold text-black">【考研报考难度整体评价、适合什么样基础的考生】</span>
+          南信大考研难度在双非院校中属于中等水平，适合基础一般、想进双一流学科高校的考生，以及对气象信息化方向感兴趣的考生。具体来说适合以下类型的考生报考：第一类，本科来自普通本科院校（包括二本、三本），希望进入"双一流"建设高校深造的考生；第二类，对气象信息化、气象雷达等方向感兴趣，有志于进入气象系统工作的考生；第三类，基础一般、复习时间有限、追求稳妥上岸的考生；第四类，有志于在南京及长三角地区发展的考生。需要注意的是，南信大虽然不是211高校，但"双一流"学科建设高校的学历含金量在气象系统内是无可替代的，如果考生对气象行业有兴趣，南信大是最佳选择。如果考生目标是进入顶级通信或互联网企业，可能需要付出更多努力或考虑其他目标院校。
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(13, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="w-full h-full p-10 overflow-hidden">
+      <!-- 标题 -->
+      <h1 class="text-3xl font-bold text-black mb-6 border-b-2 border-black pb-3">华东师范大学 | 华师大</h1>
+
+      <!-- 左侧内容 -->
+      <div class="flex gap-8 h-[calc(100%-80px)]">
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【院校层次定位】</strong>华东师范大学是教育部直属全国重点大学，入选国家"985工程"重点建设高校、"211工程"重点建设高校、"双一流"建设高校A类行列，由教育部与上海市人民政府共建，是新中国第一所师范大学。学校在教育学、心理学、地理学、数学、体育学等学科领域具有国内领先水平，是著名的师范类院校。在电子信息与通信工程领域，华师大属于985高校中的中等偏下水平，第四轮学科评估中信息与通信工程未进入B类（估计为C+或C等级），整体学科实力不如北理工、华工等工科强校。考研热度属于985高校中下水平，竞争相对不那么激烈，是师范类院校中性价比不错的考研目标院校。</p>
+
+          <p><strong>【地理位置详细介绍】</strong>华东师范大学坐落于上海市，校园分为闵行校区（位于东川路500号）和中山北路校区（位于中山北路3663号），研究生主要在闵行校区学习生活。上海市是中华人民共和国直辖市、国家中心城市、超大城市，全国经济总量第一大城市，国际金融中心和对外开放前沿。上海电子信息产业发达，聚集了华为上海研究所、中兴上海研发中心、阿里、腾讯、字节跳动上海分部、拼多多、携程等大量知名科技企业，以及中国商飞、中芯国际、华虹半导体等高端制造企业。上海教育资源顶级、高校云集，是全国研究生报考最热门城市之一。从生活成本来看，上海房租和房价位居全国前列，生活成本较高，但华师大研究生可以申请宿舍，能节省一部分开支。闵行校区位于上海西南方向，周边有交大、华东师大、紫竹科学园区等，地理位置相对较好。</p>
+
+          <p><strong>【电子通信相关专业设置】</strong>华东师范大学电子信息与通信工程相关研究生培养主要依托通信与电子工程学院、物理与电子科学学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、883信号与系统）、080300光学工程、085400电子信息（专业硕士，包含通信工程、集成电路工程、光电信息工程等方向，初试科目：政治、英语二、数学二、883信号与系统或884电子技术基础）。研究生方向涵盖通信系统与网络、信号处理与模式识别、集成电路设计、光电检测技术、微波技术、图像处理等。根据2024年招生数据，通信与电子工程学院拟招收硕士研究生约80人左右，其中学硕约30人、专硕约50人，招生规模在985高校中属于中等偏小水平。</p>
+
+          <p><strong>【学科评估等级、专业实力排名】</strong>在教育部全国第四轮学科评估中，华东师范大学信息与通信工程学科评估结果未进入B类（估计为C+或C等级），与北京师范大学、华东师范大学、华中师范大学等师范类高校处于相近层次。在985高校中，华师大的工科实力相对较弱，但学校综合实力和地理位置是明显优势。华东师范大学通信与电子工程学院拥有"上海市多维度信息处理重点实验室"等科研平台，承担了国家自然科学基金、上海市科委项目等科研项目。学院在信号处理、通信系统等方向有一定的科研积累，与上海本地企业有产学研合作关系。作为师范类院校，华师大在电子信息领域的学科建设相比工科强校存在差距，但对于想在985平台深造且对师范类方向有兴趣的考生来说是不错的选择。</p>
+
+          <p><strong>【院校核心亮点、特色方向】</strong>华东师范大学电子信息类专业具有以下特色和亮点：第一，地处上海，靠近华为、中兴、阿里、腾讯、字节跳动等顶级科技企业和科研院所，实习和就业资源顶级；第二，985高校学历含金量高，在全国范围内具有较高认可度，特别是在上海就业具有独特优势；第三，师范类院校中电子信息类专业竞争相对不那么激烈，上岸概率高于同层次工科强校；第四，学校保护第一志愿考生，不接受校外调剂（特殊情况除外），第一志愿考生有优先录取机会；第五，学校生活设施完善，闵行校区环境优美，食堂、宿舍条件较好；第六，师范类背景使得毕业生在考公、教师编制等方向有独特优势；第七，华师大在教育技术学、智慧教育等交叉领域有特色研究方向，适合对教育信息化感兴趣的考生。</p>
+
+          <p><strong>【考研报考优势、保护一志愿、是否歧视双非、复试特点】</strong>华东师范大学考研报考优势主要体现在以下几个方面：首先，作为985高校，学历含金量有保障，在就业市场和考公等方面具有优势；其次，相比同层次工科985高校（如北理工、华工、浙大等），华师大电子信息类专业报考竞争相对不那么激烈，上岸难度较低；第三，学校保护第一志愿考生，不接受校外调剂，第一志愿考生在达到院线后有优先录取机会；第四，复试比例合理，通常为1:1.2到1:1.3之间，淘汰比例可控。关于是否歧视双非，华师大整体来说对本科背景的包容性较好，毕竟师范类院校生源中双非考生占比较大，导师对双非考生接受度较高，但需要注意的是，热门方向竞争也比较激烈，双非考生需要争取较高的初试分数才能增加录取概率。复试内容通常包括专业课笔试（信号与系统或电子技术基础）、英语口语面试、综合面试，面试中导师会关注考生的专业知识储备和综合素质。</p>
+        </div>
+
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【毕业生主要就业方向、就业企业】</strong>华东师范大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：科技企业（华为上海、中兴上海、阿里、腾讯、字节跳动上海分部、拼多多、携程、哔哩哔哩等互联网和通信企业）、半导体与集成电路（中芯国际、华虹半导体、韦尔股份、卓胜微等芯片设计制造企业）、国有企业（上海移动、上海联通、上海电信、电网上海市电力公司等）、金融机构科技部门（蚂蚁金服、陆金所、交通银行数据中心等金融科技企业）、科研院所与高校（中科院上海微系统所、中科院上海光机所、上海交通大学等，需要继续深造读博）、教育信息化企业（好未来、猿辅导、作业帮等在线教育平台，以及各类学校教育信息化公司）。就业地域分布上，约60-70%的毕业生选择留在上海发展，约20%前往北京和长三角其他城市发展。从就业岗位来看，软件开发工程师、算法工程师、嵌入式软件工程师、硬件工程师、测试工程师、技术支持、产品经理等是主要职位类型。</p>
+
+          <p><strong>【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</strong>华东师范大学电子信息类硕士毕业生平均起薪水平在12000-20000元/月之间（年薪约14-24万元），具体薪资取决于就业去向和个人能力。从就业单位性质来看：顶级私企（如华为、阿里、腾讯、字节跳动、拼多多等）起薪最高，2024年华为给985硕士的年薪普遍在22-40万元之间（SP offer可达50万+），互联网大厂年薪在20-35万元之间，但工作强度大、加班普遍；普通私营企业起薪约12-18万元，工作强度相对可控；国有企业（如运营商省公司、电网等）年薪约10-15万元，福利完善、社保公积金缴纳比例高、工作稳定，但薪资增长空间有限；科研院所年薪约12-18万元，部分研究所可以解决上海户口。整体来看，华师大硕士毕业生在上海具有较强的竞争力，起薪水平在985高校中属于中等偏上。上海房价和房租较高，但华师大研究生可以申请宿舍，能节省一部分生活成本。</p>
+
+          <p><strong>【考研报考难度整体评价、适合什么样基础的考生】</strong>华东师范大学电子信息类专业考研难度在985高校中属于中等偏低水平，是性价比较高的985考研目标院校。适合以下类型的考生报考：第一类，本科来自普通本科院校（包括一本、二本），希望进入985高校深造、提升学历层次的考生，华师大对双非考生相对友好；第二类，有志于在上海及长三角地区发展、进入优质科技企业工作的考生，上海的就业机会丰富、薪资水平高；第三类，本科基础一般但复习时间充裕、愿意付出努力冲击985的考生，华师大相比北理工、浙大等工科强校上岸难度低很多；第四类，对师范类方向有兴趣的考生，或者希望未来有教师编制、公务员等就业选择的考生；第五类，不介意报考师范类院校的考生。需要注意的是，华师大毕竟是985高校，数学、英语等公共课和专业课要求仍然较高，建议早做准备、充分复习，尤其要重视数学和专业课的备考。2024年信息与通信工程学硕复试线约为310分，电子信息专硕复试线约为305分，预计竞争压力会进一步加大。</p>
+
+          <p><strong>【读研体验与校园生活】</strong>华东师范大学闵行校区位于上海市闵行区，校园环境优美，绿化覆盖率高，被学生称为"华东公园大学"。校区基础设施完善，图书馆、体育馆、食堂、宿舍等条件较好。研究生宿舍一般为双人间或四人间，费用合理。上海生活便利，地铁网络发达，出行方便。华师大社团活动丰富，学术氛围浓厚。作为师范类院校，女生比例较高，校园文化氛围较为独特。导师整体比较负责任，科研项目因研究方向而异。研究生期间可以参加各类学术会议、行业论坛，充分利用上海丰富的教育资源。需要注意的是，华师大工科氛围相比交大、同济等工科强校较弱，如果你希望有更浓厚的工科学习氛围，可能需要主动寻求机会。</p>
+
+          <p><strong>【读研成本与奖助学金】</strong>华东师范大学全日制硕士研究生学费一般为8000-10000元/年，部分专硕方向学费较高（如集成电路方向可能达到15000-20000元/年）。学校提供多种奖助学金：国家助学金6000元/年（每月600元发放）、学业奖学金（一等奖12000元/年，二等奖8000元/年，三等奖6000元/年，覆盖比例较高）、国家奖学金20000元/年（竞争激烈）、各类社会奖学金、企业奖学金等。研究生可以通过担任助教（助管）获得额外补贴。上海生活成本较高，但学校提供的奖助学金基本可以覆盖大部分学费和部分生活费，家庭经济压力相对可控。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(14, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="w-full h-full p-10 overflow-hidden">
+      <!-- 标题 -->
+      <h1 class="text-3xl font-bold text-black mb-6 border-b-2 border-black pb-3">南昌大学 | 昌大</h1>
+
+      <!-- 左侧内容 -->
+      <div class="flex gap-8 h-[calc(100%-80px)]">
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【院校层次定位】</strong>南昌大学是江西省省属唯一入选国家"211工程"重点建设的高校，由江西省人民政府与教育部共建，入选"双一流"建设高校。学校前身为1921年创办的江西公立医学专门学校，历经多次更名和合并，1993年由江西大学、江西工业大学合并组建南昌大学，是江西省综合实力最强、办学规模最大的综合性大学。在电子信息与通信工程领域，南昌大学属于211高校中的中等偏下水平，信息与通信工程学科在教育部第四轮学科评估中获评C等级（全国50-60%区间），与安徽大学、太原理工大学等处于相近层次。考研热度属于211高校第三梯队，竞争相对不激烈，是性价比较高的考研目标院校，尤其适合想在江西省内发展的考生。</p>
+
+          <p><strong>【地理位置详细介绍】</strong>南昌大学坐落于江西省省会南昌市，校园分为前湖校区（位于红谷滩新区学府大道999号，是主校区，研究生主要在此）、东湖校区（位于阳明东路，提供医学类专业）、青山湖校区（位于青山湖区）等多个校区。南昌市是江西省省会、长江中游城市群核心城市之一、全国重要的综合交通枢纽。南昌市近年来大力发展电子信息产业，聚集了欧菲光、联创电子、兆驰半导体、华勤通讯、龙旗信息等一批光电和移动通信终端企业，形成了初步的电子信息产业集群。但整体而言，南昌的电子信息产业规模与东部沿海城市（如深圳、苏州、上海等）相比仍有较大差距，薪资水平也相对偏低。南昌生活成本较低，房价和房租在省会城市中属于偏低水平，租房成本尤其便宜，是性价比较高的读研城市。交通方面，南昌昌北国际机场开通了通往全国主要城市的航班，高铁网络四通八达，到上海仅需3小时、到杭州仅需2.5小时、到武汉仅需1.5小时、到福州仅需2小时。南昌气候属于亚热带季风气候，夏季炎热（7-8月最高气温可达38度以上），冬季湿冷。</p>
+
+          <p><strong>【电子通信相关专业设置】</strong>南昌大学电子信息与通信工程相关研究生培养主要依托信息工程学院、理学院、机电工程学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、811信号与系统）、080300光学工程、085400电子信息（专业硕士，包含电子与通信工程、光电信息工程、集成电路工程等方向，初试科目：政治、英语二、数学二、811信号与系统或812电路）。研究生方向涵盖信号与信息处理、通信系统与网络、光电检测技术、光纤通信、嵌入式系统、物联网技术等。根据2024年招生数据，信息工程学院拟招收硕士研究生约100人左右，其中学硕约40人、专硕约60人，招生规模在211高校中属于中等偏小水平。南昌大学信息工程学院设有"信息与通信工程"一级学科硕士学位授权点，以及"电子信息"专业学位授权类别。</p>
+
+          <p><strong>【学科评估等级、专业实力排名】</strong>在教育部全国第四轮学科评估中，南昌大学信息与通信工程学科评估结果为C等级（全国50-60%区间），与安徽大学、太原理工大学、中北大学、沈阳航空航天大学等高校处于相近层次。在江西省内，南昌大学是电子信息类学科实力最强的高校，没有之一，是江西省电子信息类人才培养的核心基地。相比武汉理工大学、深圳大学等B级211高校，南昌大学在学科实力和科研资源方面存在明显差距。南昌大学信息工程学院拥有"江西省光伏发电系统工程技术研究中心"、"江西省光电检测技术工程实验室"等省部级科研平台，承担了国家自然科学基金、江西省科技重大专项等科研项目。学院在光电检测、光纤传感、信号处理等方向有一定的科研积累，与江西省内部分光电企业有产学研合作关系。作为地方211高校，南昌大学的学科建设主要服务于江西省电子信息产业发展需求。</p>
+
+          <p><strong>【院校核心亮点、特色方向】</strong>南昌大学电子信息类专业具有以下特色和亮点：第一，江西省唯一的211高校，在江西省内就业具有独特优势，江西省电子信息类国企、政府部门、高校是主要就业去向，校友资源丰富；第二，考研难度在211高校中属于较低水平，复试分数线通常执行国家线或略高于国家线，上岸概率较高，是冲击211高校的稳妥选择；第三，生活成本极低，南昌房租和房价在省会城市中属于偏低水平，研究生期间的读研经济压力很小；第四，学校保护第一志愿考生，复试比例合理（通常1:1.2左右），淘汰比例不高；第五，对本科背景的包容性较强，双非考生占比很大，导师对双非考生接受度高；第六，南昌正在大力发展电子信息产业，未来就业机会可能增加，特别是欧菲光、联创电子等本地企业；第七，作为综合性大学，学生可以选修其他学科课程拓宽知识面。</p>
+
+          <p><strong>【考研报考优势、保护一志愿、是否歧视双非、复试特点】</strong>南昌大学考研报考优势主要体现在以下几个方面：首先，江西省唯一211高校的身份使得南昌大学在本省就业具有独特优势，省内企业、政府部门、高校普遍认可南昌大学毕业生；其次，考研难度在211高校中属于较低水平，复试分数线通常执行国家线（工学265分左右）或略高于国家线，上岸概率较高；第三，专业课难度适中，811信号与系统或812电路历年真题重复率较高，复习资料相对齐全；第四，学校招生规模适中（每年约100人左右），机会较多。关于是否歧视双非，南昌大学对本科背景的包容性很强，毕竟江西省生源和双非考生占比较大，导师对双非考生接受度很高，江西省内很多考生都是来自普通本科院校，只要初试成绩达标、复试表现正常即可被录取。复试内容通常包括专业课笔试（信号与系统或电路理论）、英语口语面试、综合面试，部分方向会有简单的实验技能考核。南昌大学复试相对公平，不会刻意为难考生。</p>
+        </div>
+
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【毕业生主要就业方向、就业企业】</strong>南昌大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：本地光电企业（欧菲光集团（南昌）、联创电子科技、兆驰半导体、华勤通讯技术、龙旗信息技术等南昌本地及周边企业）、通信设备商（华为、中兴、爱立信等，但南昌本地岗位相对有限）、运营商省公司（中国移动江西公司、中国联通江西公司、中国电信江西公司等）、国有企业（江西省电子集团、江西省投资集团等省内国企）、政府部门与事业单位（江西省工信厅、各地市科技局、江西省计量测试研究院等，需要参加公务员考试或事业单位招聘）、考研深造（继续攻读博士学位或进入高校、科研院所）。就业地域分布上，约40%的毕业生选择留在江西省内发展，其中南昌是主要就业城市；约30%前往长三角和珠三角地区发展（上海、杭州、深圳、广州等）；其余分散在全国各地。从就业岗位来看，技术研发工程师、测试工程师、工艺工程师、销售工程师、技术支持等是主要职位类型。</p>
+
+          <p><strong>【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</strong>南昌大学电子信息类硕士毕业生平均起薪水平在6500-10000元/月之间（年薪约8-12万元），具体薪资取决于就业去向和个人能力。从就业单位性质来看：私营企业（如欧菲光、联创电子、华勤通讯等南昌本地光电企业）起薪约6-9千元/月，工作强度中等，薪资增长空间有限；大型私企（华为、中兴等）南昌岗位较少，如果能进入起薪约15-22万元，但竞争激烈；运营商省公司年薪约8-10万元，福利较好但薪资增长缓慢；国有企业（如江西省电子集团等）年薪约8-12万元，福利完善、社保公积金缴纳比例高、工作稳定；科研院所年薪约10-14万元。相比东部沿海城市，南昌的薪资水平整体偏低，但如果在本地就业（特别是国有企业），加上极低的生活成本（房租约800-1500元/月，房价约8000-12000元/平方米），实际上生活质量不一定差。很多毕业生会选择先在南昌积累几年经验，然后再跳槽到一线城市发展。</p>
+
+          <p><strong>【考研报考难度整体评价、适合什么样基础的考生】</strong>南昌大学电子信息类专业考研难度在211高校中属于较低水平，是性价比较高的考研目标院校。适合以下类型的考生报考：第一类，本科来自普通本科院校（包括二本、三本），希望进入211高校深造、提升学历层次的考生，南昌大学对双非考生非常友好；第二类，基础一般、复习时间有限、追求稳妥上岸的考生，南昌大学复试分数线通常执行国家线，上岸概率较高；第三类，有志于在江西省内发展或中部地区发展的考生，南昌大学在江西省内具有独特优势，校友资源丰富；第四类，预算有限、希望降低读研生活成本的考生，南昌生活成本极低，读研经济压力很小；第五类，不介意去二三线城市就业的考生；第六类，对光电信息方向感兴趣的考生，南昌本地光电产业发展较好。需要注意的是，南昌大学在电子信息领域的学科实力和科研资源相比东部沿海211高校存在差距，如果希望去一线城市发展或进入顶级科技企业，可能需要付出更多努力。建议考生根据自身职业规划合理选择。</p>
+
+          <p><strong>【读研体验与校园生活】</strong>南昌大学前湖校区位于南昌市红谷滩新区，校园面积较大，环境优美，绿化覆盖率高，被学生称为"南昌大学城"。校区基础设施完善，图书馆、体育馆、食堂、宿舍等条件较好。研究生宿舍一般为四人间，有空调和热水器，费用约1000-1500元/年，较为便宜。学校周边商业配套逐渐完善，有商业街、超市等生活设施。南昌交通便利，地铁网络覆盖主城区，出行方便。南昌小吃丰富，赣菜口味偏辣。导师整体比较负责任，对研究生管理相对宽松。研究生期间可以参加各类学术活动。需要注意的问题是，南昌夏天非常炎热（体感温度可达40度以上），冬天湿冷且没有暖气，对于北方考生可能需要适应一段时间。</p>
+
+          <p><strong>【读研成本与奖助学金】</strong>南昌大学全日制硕士研究生学费一般为8000元/年，部分专硕方向学费为12000元/年。学校提供多种奖助学金：国家助学金6000元/年（每月600元发放）、学业奖学金（一等奖10000元/年，二等奖8000元/年，三等奖6000元/年，覆盖比例较高）、国家奖学金20000元/年（竞争激烈，需要有高水平论文或成果）、各类社会奖学金、导师助研津贴等。研究生担任助教（助管）可获得额外补贴。由于南昌生活成本极低，学校提供的奖助学金基本可以覆盖学费和大部分生活费，家庭经济压力很小。南昌房租约500-1000元/月（单间），学校宿舍更便宜，吃饭花费约600-800元/月，是读研成本最低的211高校之一。</p>
+
+          <p><strong>【未来发展与建议】</strong>从长远发展角度来看，选择南昌大学需要考虑以下几点：第一，如果你确定在江西省内发展，南昌大学是最好的选择，省内认可度极高，校友资源丰富；第二，如果你希望去一线城市发展，需要提前做好职业规划，在读研期间积累项目经验、提升技术水平，为以后跳槽做准备；第三，南昌正在大力发展电子信息产业，欧菲光、联创电子等企业规模不断扩大，未来本地就业机会可能增加；第四，可以考虑读博深造提升学历，南昌大学有信息与通信工程一级学科博士点，可以在本校或外校继续读博；第五，建议在读研期间多参加实习，积累工作经验，这对于以后就业非常重要。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(15, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="w-full h-full p-10 overflow-hidden">
+      <!-- 标题 -->
+      <h1 class="text-3xl font-bold text-black mb-6 border-b-2 border-black pb-3">江南大学 | 江南</h1>
+
+      <!-- 左侧内容 -->
+      <div class="flex gap-8 h-[calc(100%-80px)]">
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【院校层次定位】</strong>江南大学是教育部直属全国重点大学，入选国家"211工程"重点建设高校、"985工程优势学科创新平台"建设高校、"双一流"建设高校，由教育部、江苏省人民政府、无锡市人民政府共建。学校在轻工技术与工程、食品科学与工程等学科领域具有世界领先水平，被誉为"轻工高等教育明珠"。学校源自1902年创办的三江师范学堂，历经国立南京高等师范学校、国立东南大学、国立南京大学等时期，1958年迁至无锡建校，是我国轻工高等教育的重要起源地。在电子信息与通信工程领域，江南大学属于211高校中的中等偏下水平，第四轮学科评估中信息与通信工程未进入B类（估计为C+或C等级），与安徽大学、太原理工大学等处于相近层次。考研热度属于211高校中下水平，竞争相对不那么激烈，是性价比较高的考研目标院校。</p>
+
+          <p><strong>【地理位置详细介绍】</strong>江南大学坐落于江苏省无锡市，校园位于太湖湾科创带，环境优美、设施先进，被誉为"花园式大学"，校园内有人工湖、湿地公园等景观，生态环境极佳。无锡市是江苏省地级市、长三角城市群核心城市之一、全国重要的现代制造业基地和苏南模式发源地，被誉为"太湖明珠"。无锡市2023年GDP位居全国前20名，人均GDP更是位居全国前列。无锡电子信息产业发达，特别是半导体和集成电路产业，聚集了华虹半导体、SK海力士半导体（无锡工厂）、长电科技、卓胜微电子、华润微电子、芯朋微电子等一批半导体和集成电路企业，形成了完整的集成电路产业链。无锡还拥有物联网产业集群，聚集了小天鹅、信捷电气、和晶科技等物联网企业，被誉为"中国物联网之都"。无锡生活成本在长三角城市中属于中等偏低水平，房租和房价比苏州、南京低不少（房价约15000-20000元/平方米）。交通方面，无锡是京沪高铁和沪宁城际的重要节点，无锡站、无锡东站、无锡新区站三个高铁站，到上海仅需30分钟、到南京仅需1小时、到苏州仅需20分钟，完全融入长三角一小时经济圈。</p>
+
+          <p><strong>【电子通信相关专业设置】</strong>江南大学电子信息与通信工程相关研究生培养主要依托物联网工程学院、电子信息学院、至善学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、833信号与系统）、080300光学工程、085400电子信息（专业硕士，包含新一代电子信息技术、通信工程、光电信息工程、集成电路工程、人工智能等方向，初试科目：政治、英语二、数学二、833信号与系统或834计算机程序设计）。研究生方向涵盖物联网技术与应用、信号与信息处理、通信系统与网络、嵌入式系统、人工智能与机器学习、光电检测技术、集成电路设计等。根据2024年招生数据，物联网工程学院拟招收硕士研究生约120人左右，其中学硕约50人、专硕约70人，招生规模在211高校中属于中等水平。江南大学物联网工程学院是国内最早设立物联网相关专业的高校之一，在物联网领域有较深的积累。</p>
+
+          <p><strong>【学科评估等级、专业实力排名】</strong>在教育部全国第四轮学科评估中，江南大学信息与通信工程学科评估结果未进入B类（估计为C+或C等级），与安徽大学、太原理工大学、南昌大学等处于相近层次。但需要注意的是，江南大学在物联网、人工智能等交叉领域有特色研究方向，学科评估不能完全反映学校的综合实力。在江苏省内，江南大学的信息与通信工程学科实力位居中等水平，次于东南大学、南京大学、南京航空航天大学、南京理工大学、苏州大学、中国矿业大学、河海大学等工科强校。江南大学物联网工程学院拥有"物联网技术"教育部工程研究中心、"轻工过程先进控制"教育部重点实验室等科研平台，承担了国家自然科学基金、国家863计划、江苏省科技重大专项等科研项目。学院在物联网技术、工业自动化、智能检测等方向有较强的科研积累，与华为、阿里云、海尔、海信等企业有产学研合作关系。</p>
+
+          <p><strong>【院校核心亮点、特色方向】</strong>江南大学电子信息类专业具有以下特色和亮点：第一，地处长三角半导体和物联网产业核心区域，无锡聚集了大量半导体和物联网企业，实习和就业机会丰富，特别是对物联网感兴趣的考生；第二，学校在物联网方向有鲜明特色和优势，是国内最早设立物联网专业的高校之一，相关导师和项目资源丰富；第三，专业课难度适中，833信号与系统复习资料齐全，历年真题重复率较高；第四，学校保护第一志愿考生，复试比例合理（通常1:1.2左右）；第五，对双非考生包容度较高，江苏省内双非生源占比较大；第六，无锡生活成本适中，比上海、南京、苏州低不少，性价比较高；第七，校园环境优美，被评为"江苏省最美高校"之一，适合学习生活；第八，江南大学在轻工自动化、食品检测等领域有独特优势，与电子信息技术有交叉应用。第九，作为无锡市政府共建高校，江南大学获得无锡市政府的大力支持，与本地企业合作密切。</p>
+
+          <p><strong>【考研报考优势、保护一志愿、是否歧视双非、复试特点】</strong>江南大学考研报考优势主要体现在以下几个方面：首先，211高校学历在江苏省内认可度较高，特别是在无锡本地企业中有明显优势，无锡市政府和本地企业对江南大学毕业生有倾斜政策；其次，考研难度在211高校中属于中等偏低水平，复试分数线通常执行国家线或略高于国家线，上岸概率较高；第三，专业课难度适中，833信号与系统复习资料齐全；第四，学校招生规模适中，机会较多（每年约120人左右）。关于是否歧视双非，江南大学对本科背景的包容性较好，毕竟江苏省内双非考生占比较大，导师对双非考生接受度较高，但需要注意的是，无锡本地考生和江苏生源竞争也比较激烈。复试内容通常包括专业课笔试（信号与系统或计算机程序设计）、英语口语面试、综合面试，部分方向会有编程测试。江南大学复试相对公平，初试成绩在最终录取中占比较大（通常60-70%）。</p>
+        </div>
+
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【毕业生主要就业方向、就业企业】</strong>江南大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：半导体与集成电路（华虹半导体无锡、SK海力士无锡、长电科技、卓胜微电子、华润微电子、芯朋微电子等无锡本地及长三角半导体企业，是江南大学毕业生的主要去向之一）、物联网企业（小天鹅、信捷电气、和晶科技、朗新科技、江苏省物联网工程中心等）、通信设备企业（华为、中兴、爱立信等，但无锡本地岗位相对有限）、互联网与软件（阿里巴巴、腾讯、字节跳动无锡、网易等，但无锡岗位不如上海、杭州多）、本地科技企业（无锡尚德、隆玛科技、双鸟科技等）、运营商省公司（江苏移动、江苏联通、江苏电信等）、国有企业（无锡市属国企、江苏省属国企驻锡单位等）。就业地域分布上，约50-60%的毕业生选择留在江苏省内发展，其中无锡和苏州是主要就业城市；约30%前往上海及长三角其他城市发展；其余分散在全国各地。从就业岗位来看，嵌入式软件工程师、硬件工程师、测试工程师、FPGA工程师、Java开发工程师等是主要职位类型。</p>
+
+          <p><strong>【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</strong>江南大学电子信息类硕士毕业生平均起薪水平在8000-13000元/月之间（年薪约10-16万元），具体薪资取决于就业去向和个人能力。从就业单位性质来看：半导体企业（华虹半导体、长电科技等）起薪约10-15万元，福利较好，但工作强度较大；顶级私企（华为、阿里等）起薪约18-28万元，但无锡岗位竞争激烈；普通私营企业起薪约8-12万元；运营商省公司年薪约9-12万元，福利完善但薪资增长缓慢；国有企业（如无锡市属国企等）年薪约10-14万元，福利完善、工作稳定。无锡生活成本在长三角属于中等偏低水平：房租约1000-1800元/月（单间），房价约15000-20000元/平方米（市区），相比上海、南京、苏州低不少。综合考虑薪资水平和生活成本，江南大学硕士毕业生在无锡的性价比很高，很多毕业生能够在工作几年后购买房产安居乐业。</p>
+
+          <p><strong>【考研报考难度整体评价、适合什么样基础的考生】</strong>江南大学电子信息类专业考研难度在211高校中属于中等偏低水平，是性价比较高的考研目标院校。适合以下类型的考生报考：第一类，本科来自普通本科院校（包括一本、二本），希望进入211高校深造、提升学历层次的考生，江南大学对双非考生相对友好；第二类，有志于在无锡及长三角地区发展、进入半导体或物联网企业工作的考生，江南大学在这些领域有独特优势；第三类，本科基础一般但复习时间充裕、愿意付出努力冲击211的考生，江南大学相比南京航空航天大学、苏州大学等高校上岸难度低很多；第四类，对物联网、人工智能等交叉方向感兴趣的考生，江南大学在这些方向有特色研究；第五类，预算有限、希望降低读研生活成本的考生，无锡生活成本适中。需要注意的是，江南大学在电子信息领域的学科实力和科研资源相比工科强校存在差距，如果目标是进入顶级科技企业的核心研发岗位，可能需要额外努力。2024年信息与通信工程学硕复试线约为280分（国家线），电子信息专硕复试线约为280分，预计竞争压力会有所增加。</p>
+
+          <p><strong>【读研体验与校园生活】</strong>江南大学校园位于无锡市滨湖区太湖之滨，环境优美，被评为"江苏省最美高校"和"全国绿化模范单位"。校园内有人工湖"小蠡湖"、曲水桥、校园湿地公园等景观，生态环境极佳，被誉为"花园式大学"。校区基础设施完善，图书馆（获鲁班奖）、体育馆、游泳馆、食堂、宿舍等设施现代化、舒适度高。研究生宿舍一般为双人间或四人间，有空调和热水器，费用约1000-1500元/年，较为便宜。学校周边商业配套完善，有江南大学商业街、万达广场等。无锡交通便利，地铁1号线和2号线覆盖市区主要区域，无锡站和无锡东站可直达全国主要城市。无锡美食丰富，有太湖三白、无锡排骨、无锡小笼包等特色美食。导师整体比较负责任，对研究生管理因人而异。需要注意的问题是，无锡夏天较热（与南京、上海类似），冬天湿冷。</p>
+
+          <p><strong>【读研成本与奖助学金】</strong>江南大学全日制硕士研究生学费一般为8000元/年，部分专硕方向学费为10000元/年。学校提供多种奖助学金：国家助学金6000元/年（每月600元发放）、学业奖学金（一等奖12000元/年，二等奖9000元/年，三等奖7000元/年，覆盖比例约80%）、国家奖学金20000元/年（竞争激烈）、校长奖学金、院士奖学金等各类社会奖学金、企业奖学金等。研究生可以通过担任助教（助管）或导师助研获得额外补贴。由于无锡生活成本适中，学校提供的奖助学金基本可以覆盖学费和大部分生活费，家庭经济压力相对可控。无锡房租约800-1500元/月（单间），学校宿舍更便宜，吃饭花费约600-800元/月。综合来看，江南大学是读研成本和就业性价比都比较高的211高校选择。</p>
+
+          <p><strong>【未来发展与建议】</strong>从长远发展角度来看，选择江南大学需要考虑以下几点：第一，无锡是中国集成电路和物联网产业的重要基地，产业发展前景好，就业机会多，特别是对物联网、半导体、集成电路感兴趣的考生；第二，如果你希望在长三角发展但又担心上海、南京、苏州竞争太激烈，无锡是很好的折中选择；第三，江南大学在物联网领域有较强积累，如果你对这个方向有兴趣，江南大学是不错的选择；第四，建议在读研期间多积累项目经验，特别是与物联网、半导体相关的项目，这对你以后就业非常重要；第五，可以考虑读博深造提升学历，无锡有多家高校和科研院所可以继续攻读博士学位；第六，如果你对江南大学的轻工、食品等优势学科感兴趣，也可以考虑跨学科发展，在电子信息技术与这些领域的交叉方向上寻找机会。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(16, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="w-full h-full p-10 overflow-hidden">
+      <!-- 标题 -->
+      <h1 class="text-3xl font-bold text-black mb-6 border-b-2 border-black pb-3">武汉大学 | 武大</h1>
+
+      <!-- 左侧内容 -->
+      <div class="flex gap-8 h-[calc(100%-80px)]">
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【院校层次定位】</strong>武汉大学是教育部直属全国重点大学，入选国家"985工程"重点建设高校、"211工程"重点建设高校、"双一流"建设高校A类行列，由教育部与湖北省人民政府共建。学校前身为1893年创办的自强学堂，是中国最著名的综合性大学之一，被誉为"中国最美丽的大学"，学科门类齐全、实力雄厚，在国内外享有极高声誉。武大在遥感科学与技术、测绘科学与技术、水利工程、法学、马克思主义理论、口腔医学等学科领域具有国内乃至世界领先水平，是著名的文理综合性大学。在电子信息与通信工程领域，武大属于985高校中等偏下水平，信息与通信工程学科在教育部第四轮学科评估中获评B等级（全国前30%），与深圳大学、南昌大学、华中师范大学等处于同一层次，但作为985高校，武大的综合实力和品牌影响力远超同等级的211高校。考研热度属于985高校中上水平，竞争比较激烈，是中部地区最热门的考研目标院校之一。</p>
+
+          <p><strong>【地理位置详细介绍】</strong>武汉大学坐落于湖北省省会武汉市，校园分布在武昌区多个地点，以樱花闻名的樱花城堡位于珞珈山麓，风景优美、环境宜人，被誉为"全国最美大学校园"之一，每年樱花季吸引数百万游客前来观赏。武汉大学校园依山傍水，建筑风格中西合璧，涵盖了民国时期、建国后等不同历史时期的建筑，被国务院列为全国重点文物保护单位。研究生主要在信息学部（位于武汉市武昌区珞喻路129号，靠近武汉光谷核心区域）、文理学部、工学部等学部学习生活。武汉市的相关介绍与武汉理工大学部分类似：武汉市是湖北省省会、长江中游城市群核心城市、国家中心城市、全国重要的工业基地和科教基地。武汉电子信息产业近年来发展迅速，形成了以光谷（东湖高新区）为代表的电子信息产业集群，聚集了烽火通信、光迅科技、长江存储、武汉新芯、华为武汉研究所、腾讯武汉、字节跳动武汉等一批知名企业，被誉为"中国光谷"。武汉还是中部地区最大的交通枢纽，京广高铁、沪汉蓉高铁在此交汇，天河国际机场是中部地区最大的航空枢纽。从生活成本来看，武汉房租和房价在省会城市中属于中等偏低水平，生活成本相对较低，是一个性价比较高的读研城市。</p>
+
+          <p><strong>【电子通信相关专业设置】</strong>武汉大学电子信息与通信工程相关研究生培养主要依托电子信息学院、计算机学院、遥感信息工程学院、测绘遥感信息工程国家重点实验室等学院和研究机构。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、936信号与系统或937计算机基础）、080900电子科学与技术、085400电子信息（专业硕士，包含通信工程、电子与信息工程、光电信息工程、计算机技术等方向，初试科目：政治、英语二、数学二、936信号与系统或937计算机基础）。研究生方向涵盖遥感信息处理与图像理解、通信系统与网络、信号处理与模式识别、光电检测技术、空间定位与导航、机器学习与人工智能、嵌入式系统等。根据2024年招生数据，电子信息学院和遥感信息工程学院合计拟招收硕士研究生约150人左右，其中学硕约60人、专硕约90人，招生规模在985高校中属于中等水平。武汉大学在遥感、测绘、空间信息等方向具有国内领先地位，这些方向与电子信息有密切交叉。</p>
+
+          <p><strong>【学科评估等级、专业实力排名】</strong>在教育部全国第四轮学科评估中，武汉大学信息与通信工程学科评估结果为B等级（全国前30%），与深圳大学、南昌大学、华中师范大学等处于同一层次。在985高校中，武大的信息与通信工程学科实力属于中等水平，但学校综合实力、知名度和品牌影响力远超同等级211高校。武汉大学电子信息学院拥有"国家多媒体软件工程技术研究中心"、"遥感科学国家重点实验室"（与测绘遥感信息工程国家重点实验室共建）等高水平科研平台，承担了国家自然科学基金、国家863计划、973项目等大量科研项目。学院在遥感图像处理、空间信息处理、通信系统等方向有较强的科研积累，与华为、腾讯、阿里巴巴等企业有紧密的产学研合作关系。武汉大学遥感科学与技术学科在全国排名第一（与北京航空航天大学并列），遥感与电子信息的交叉领域是武大的特色优势方向。</p>
+
+          <p><strong>【院校核心亮点、特色方向】</strong>武汉大学电子信息类专业具有以下特色和亮点：第一，985高校学历含金量高，全国知名度顶级，在就业市场、考公、选调生等方面具有明显优势，校友资源遍布各行各业；第二，学校综合实力雄厚，作为综合性大学，学生可以选修其他学科课程，拓宽知识面，培养复合型人才；第三，地处武汉光谷核心区域，光谷聚集了大量通信、光电、互联网企业，实习和就业机会丰富；第四，在遥感信息、空间定位、测绘导航等交叉领域具有国内领先地位，这些方向的毕业生就业竞争力很强；第五，学校保护第一志愿考生，复试比例合理（通常1:1.2左右）；第六，武汉生活成本较低，是985高校中性价比较高的选择；第七，武大校园环境优美，学生生活体验好，被评为"中国最幸福的大学"之一；第八，珞珈讲坛、跨学科学术活动丰富，学生学术视野开阔。</p>
+
+          <p><strong>【考研报考优势、保护一志愿、是否歧视双非、复试特点】</strong>武汉大学考研报考优势主要体现在以下几个方面：首先，985高校的身份使得武汉大学毕业生在就业市场、考公、选调生等方面具有独特优势，是中部地区考生的首选目标院校；其次，学校综合实力强，即使是信息与通信工程学科B级的评估结果，在社会认可度上也不逊于部分B+的211高校；第三，地处武汉光谷，实习和就业资源丰富；第四，学校保护第一志愿考生，不接受校外调剂（特殊情况除外），第一志愿考生有优先录取机会。关于是否歧视双非，武汉大学整体来说对本科背景有一定要求（毕竟是985高校），但双非考生只要初试成绩足够高、复试表现优秀，仍然有机会被录取。近年来武大逐渐提高了对双非考生的包容度，每年都有大量双非考生成功上岸。初试成绩在最终录取中占比较大（通常60-70%），因此初试分数是硬道理。复试内容通常包括专业课笔试（信号与系统或计算机基础）、英语口语面试、综合面试，部分方向会有编程测试。面试中导师会关注考生的专业知识储备、科研潜力和综合素质。</p>
+        </div>
+
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【毕业生主要就业方向、就业企业】</strong>武汉大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：互联网与软件（华为、腾讯、字节跳动武汉、阿里巴巴武汉、百度武汉、小米武汉等，特别是华为武汉研究所是武大毕业生的重要去向）、光电子企业（长江存储、武汉新芯、烽火通信、光迅科技、华星光电、天马微电子、长飞光纤等武汉本地及周边光电企业）、遥感与测绘相关（武大遥感专业毕业生可进入测绘地理信息局、中国空间技术研究院、各省市测绘院等）、通信设备与运营商（中国移动湖北公司、中国联通湖北公司等）、国有企业（国家电网、中国电子科技集团驻鄂单位、中船重工701所、712所等）、金融机构科技部门（招商银行武汉分行、交通银行武汉分行等金融科技岗位）、政府部门与事业单位（选调生、公务员、湖北省/武汉市事业单位等）。就业地域分布上，约50%的毕业生选择留在湖北省内发展，其中武汉是主要就业城市；约30%前往北上广深等一线城市发展；其余分散在全国各地。武大毕业生在选调生、公务员考试方面有明显优势。</p>
+
+          <p><strong>【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</strong>武汉大学电子信息类硕士毕业生平均起薪水平在10000-18000元/月之间（年薪约12-22万元），具体薪资取决于就业去向和个人能力。从就业单位性质来看：顶级私企（如华为武汉、中兴、字节跳动、腾讯等）起薪约18-30万元，华为、中兴等通信设备商年薪可达20-35万元，但工作强度较大；普通私营企业起薪约10-15万元；国有企业（如运营商省公司、中船重工研究所等）年薪约12-18万元，福利完善、工作稳定，但薪资增长空间有限；科研院所年薪约12-20万元，部分研究所可以解决户口问题；选调生和公务员职位起薪约6-10万元，但福利完善、职业发展稳定。武汉生活成本较低：房租约800-1500元/月（单间），房价约15000-20000元/平方米（市区核心地段），相比北京、上海、深圳低不少。综合考虑薪资水平和生活成本，武汉大学硕士毕业生在武汉的性价比很高，是中部地区985中性价比最高的选择之一。</p>
+
+          <p><strong>【考研报考难度整体评价、适合什么样基础的考生】</strong>武汉大学电子信息类专业考研难度在985高校中属于中等水平，是中部地区性价比最高的985考研目标院校。适合以下类型的考生报考：第一类，本科来自重点本科院校（包括211、985）的学生，基础扎实、复习时间充裕，武大作为985高校对生源有一定要求；第二类，有志于在武汉及中部地区发展、进入优质企业工作或参加选调生考试的考生，武大在这些方面具有独特优势；第三类，对遥感信息、测绘导航、空间定位等交叉方向感兴趣的考生，武大在这些领域具有国内领先地位；第四类，希望进入985高校深造、获取高学历含金量但又不想竞争太过激烈的考生，武大相比清华、北大、上交、浙大等顶尖985上岸难度低很多；第五类，目标是选调生或公务员的考生，武大是很多省份定向选调的目标院校。需要注意的是，武大近年来报考热度持续上升，2024年部分方向复试线超过340分，预计竞争压力会进一步加大，建议早做准备、充分复习，尤其要重视数学和专业课的备考。</p>
+
+          <p><strong>【读研体验与校园生活】</strong>武汉大学被誉为"中国最美丽的大学"，校园环境优美，人文气息浓厚。校园内有樱花城堡、珞珈山、奥林匹克运动场、宋卿体育馆等标志性建筑，樱花季（每年3月中旬至4月初）校园游客众多，但学生可以凭学生证在工作日正常进出。武汉大学校园面积较大，分为文理学部、工学部、信息学部、医学部等多个学部，各学部之间有一定距离，但校内有校车连接（1元/次）。研究生宿舍分布在各学部，设施条件因学部而异，信息学部宿舍相对较好。武汉美食丰富，热干面、豆皮、鸭脖等是武汉特色小吃，食堂价格实惠。学校社团活动丰富，学术氛围浓厚，珞珈讲坛邀请各领域专家学者做报告。学生生活体验普遍较好，是"中国最幸福的大学"之一。需要注意的是，武汉夏天非常炎热（四大火炉之一），冬天湿冷且没有暖气。</p>
+
+          <p><strong>【读研成本与奖助学金】</strong>武汉大学全日制硕士研究生学费一般为8000-10000元/年，部分专硕方向学费较高。学校提供多种奖助学金：国家助学金6000元/年（每月600元发放）、学业奖学金（特等奖12000元/年，一等奖10000元/年，二等奖8000元/年，三等奖6000元/年，覆盖比例约80%）、国家奖学金20000元/年（竞争激烈）、研究生专项奖学金（如雷军奖学金、于刚·宋晓奖学金等，金额较高）、导师助研津贴等。研究生可以通过担任助教（助管）获得额外补贴。由于武汉生活成本适中，学校提供的奖助学金基本可以覆盖学费和大部分生活费。武汉房租约800-1500元/月（单间），学校宿舍更便宜，吃饭花费约600-800元/月。综合来看，武汉大学是读研成本和就业性价比都比较高的985高校选择。</p>
+
+          <p><strong>【未来发展与建议】</strong>从长远发展角度来看，选择武汉大学需要考虑以下几点：第一，武汉是中国中部地区的科教中心，光谷聚集了大量科技企业，未来发展前景好，特别是对留在武汉发展的考生；第二，武大985的学历在就业市场、考公、选调生等方面都有明显优势，是中部地区考生的最优选择；第三，武大在遥感信息、测绘导航等交叉领域具有国内领先地位，如果你对这些方向感兴趣，武大是最佳选择；第四，建议在读研期间多积累项目经验，特别是与华为、腾讯等企业相关的项目，这对于以后就业非常重要；第五，可以考虑读博深造，武大是很多高校和科研院所的优质生源地；第六，武大校友资源丰富，遍布各行各业，校友网络对职业发展有帮助；第七，如果你对选调生或公务员感兴趣，武大是很多省份定向选调的目标院校，要提前了解相关政策。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(17, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="w-full h-full p-10 overflow-hidden">
+      <!-- 标题 -->
+      <h1 class="text-3xl font-bold text-black mb-6 border-b-2 border-black pb-3">河海大学 | 河海</h1>
+
+      <!-- 左侧内容 -->
+      <div class="flex gap-8 h-[calc(100%-80px)]">
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【院校层次定位】</strong>河海大学是教育部直属全国重点大学，入选国家"211工程"重点建设高校、"985工程优势学科创新平台"建设高校、"双一流"建设高校，由教育部、江苏省人民政府、水利部、国家海洋局共建。学校在水利工程、土木工程、环境科学与工程、港口航道与海岸工程等学科领域具有国内领先水平，被誉为"水利高层次人才培养摇篮"，素有"水文黄埔"之称。学校前身为1915年创办的河海工程专门学校，是我国第一所培养水利工程技术人才的高等院校。在电子信息与通信工程领域，河海大学属于211高校中等偏上水平，信息与通信工程学科在教育部第四轮学科评估中获评B-等级（全国前40%），与合肥工业大学、苏州大学、中国矿业大学、中山大学等处于同一层次，在江苏省内仅次于东南大学、南京大学、南京航空航天大学、南京理工大学等工科强校。考研热度属于211高校第二梯队，竞争相对适中，是性价比较高的考研目标院校。</p>
+
+          <p><strong>【地理位置详细介绍】</strong>河海大学坐落于江苏省省会南京市，校园分为西康路校区（位于南京市鼓楼区西康路1号，是老校区，历史悠久）和江宁校区（位于南京市江宁区佛城西路8号，是新校区，设施先进），研究生主要在江宁校区学习生活。南京市的相关介绍与前述内容类似：南京市是江苏省省会、长三角城市群核心城市之一、全国重要的科研教育基地和综合交通枢纽，历史悠久、文化底蕴深厚，是著名的"六朝古都"。南京电子信息产业发达，拥有南京集成电路产业服务中心、南京软件谷（是中国最大的软件产业园之一）、江北新区集成电路产业基地等产业平台，聚集了台积电南京、芯恩半导体、展讯通信、吉利汽车研究院、中兴南京研究所、华为南京研究所等一批知名企业。南京高校云集、教育资源丰富，拥有南京大学、东南大学、河海大学、南京航空航天大学、南京理工大学等知名高校。从交通区位来看，南京是华东地区重要的交通枢纽，高铁网络四通八达，到上海仅需1小时、到杭州仅需1.5小时、到北京仅需3小时。南京生活成本在长三角城市中属于中等水平，比上海、杭州低不少，但比无锡、苏州高一些。</p>
+
+          <p><strong>【电子通信相关专业设置】</strong>河海大学电子信息与通信工程相关研究生培养主要依托信息科学与工程学院、机电工程学院、电气工程学院、物联网与人工智能学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、863信号与系统）、080400仪器科学与技术、085400电子信息（专业硕士，包含电子与通信工程、仪器仪表工程、光电信息工程、人工智能等方向，初试科目：政治、英语二、数学二、863信号与系统或864电路基础）。研究生方向涵盖信号与信息处理、通信系统与网络、自动化与控制、仪器科学与技术、物联网技术与应用、嵌入式系统、人工智能等。根据2024年招生数据，信息科学与工程学院拟招收硕士研究生约100人左右，其中学硕约40人、专硕约60人，招生规模在211高校中属于中等水平。河海大学信息科学与工程学院设有"信息与通信工程"一级学科硕士学位授权点。</p>
+
+          <p><strong>【学科评估等级、专业实力排名】</strong>在教育部全国第四轮学科评估中，河海大学信息与通信工程学科评估结果为B-等级（全国前40%），与合肥工业大学、苏州大学、中国矿业大学、中山大学等高校处于同一层次。在江苏省内，河海大学的信息与通信工程学科实力位居前列，仅次于东南大学、南京大学、南京航空航天大学、南京理工大学等工科强校，高于南京师范大学、南京信息工程大学、南京邮电大学等高校。河海大学信息科学与工程学院拥有"水利大数据与智能分析"江苏省重点实验室、"水工程智能调度与控制系统"教育部数据中心等科研平台，承担了国家自然科学基金、水利部重大专项、江苏省科技计划等科研项目。学院在水利信息化、水利大数据、水声信号处理、海洋信息技术等方向有独特的研究积累，这些方向与河海大学的水利特色紧密结合，形成了交叉学科优势。相比南京航空航天大学、南京理工大学等工科强校，河海大学在电子信息领域的科研资源和项目经费相对有限。</p>
+
+          <p><strong>【院校核心亮点、特色方向】</strong>河海大学电子信息类专业具有以下特色和亮点：第一，211高校学历含金量较好，在全国范围内具有认可度，特别是在水利、电力等行业； 第二，地处南京，靠近南京软件谷、江宁开发区等电子信息产业集聚区，实习和就业机会丰富；第三，学校在水利信息化、水声信号处理、海洋信息技术等交叉领域有独特优势，这些方向的毕业生就业竞争力较强；第四，专业课难度适中，863信号与系统复习资料齐全，历年真题重复率较高；第五，学校保护第一志愿考生，复试比例合理（通常1:1.2左右），淘汰比例可控；第六，对双非考生包容度较高，江苏省内双非考生占比较大；第七，水利行业背景使得毕业生在国家电网、水利部、流域机构等国企和事业单位有就业优势；第八，校友资源在水利、电力、交通等行业比较丰富。</p>
+
+          <p><strong>【考研报考优势、保护一志愿、是否歧视双非、复试特点】</strong>河海大学考研报考优势主要体现在以下几个方面：首先，211高校身份在就业市场、水利电力行业、考公等方面具有优势，水利部、国家电网、长江水利委员会等单位的校园招聘往往面向河海大学；其次，考研难度在211高校中属于中等水平，复试分数线通常执行国家线或略高于国家线，上岸概率较高；第三，专业课难度适中，863信号与系统复习资料齐全；第四，学校招生规模适中（每年约100人左右），机会较多。关于是否歧视双非，河海大学对本科背景的包容性较好，毕竟江苏省内双非考生占比较大，导师对双非考生接受度较高，但需要注意的是，水利水电、港口海岸等传统优势方向的竞争可能比较激烈。复试内容通常包括专业课笔试（信号与系统或电路基础）、英语口语面试、综合面试，部分方向会有实验技能考核。河海大学复试相对公平，初试成绩在最终录取中占比较大（通常60-70%）。</p>
+        </div>
+
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【毕业生主要就业方向、就业企业】</strong>河海大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：水利电力行业（国家电网、南方电网各省市公司、水利部长江水利委员会、黄河水利委员会、流域管理机构、各省市水利规划设计院、水电开发公司等，是河海毕业生的传统优势去向）、通信设备与互联网（华为、中兴、爱立信、腾讯、阿里、字节跳动等，但南京本地岗位不如上海、杭州多）、南京本地科技企业（中兴南京研究所、华为南京研究所、熊猫电子、十四所南京、莱斯信息等）、半导体与集成电路（台积电南京、芯恩半导体、南京集成电路产业服务中心等，但岗位相对有限）、运营商省公司（江苏移动、江苏联通、江苏电信等）、国有企业（中国电建、中国能建、中建安装等工程建设单位）、科研院所与继续深造（中科院南京分院、南京大学、东南大学等，需要读博）。就业地域分布上，约50-60%的毕业生选择留在江苏省内发展，其中南京和苏南城市是主要就业城市；约30%前往上海及长三角其他城市发展；其余分散在全国各地。从就业岗位来看，研发工程师、测试工程师、技术支持、销售工程师、水利信息化工程师等是主要职位类型。</p>
+
+          <p><strong>【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</strong>河海大学电子信息类硕士毕业生平均起薪水平在8500-14000元/月之间（年薪约10-17万元），具体薪资取决于就业去向和个人能力。从就业单位性质来看：顶级私企（如华为、中兴、腾讯、阿里等）起薪约18-28万元，但南京岗位竞争激烈；普通私营企业起薪约9-14万元；水利电力国企（如国家电网省公司、水利部直属单位等）年薪约10-15万元，福利完善、社保公积金缴纳比例高、工作稳定，但薪资增长空间有限；运营商省公司年薪约9-12万元，福利较好但薪资增长缓慢；工程建设单位年薪约10-14万元，但工作地点可能偏远。南京生活成本在长三角属于中等水平：房租约1200-2000元/月（单间），房价约25000-35000元/平方米（市区核心地段），比上海、杭州低不少。综合考虑薪资水平和生活成本，河海大学硕士毕业生在南京的性价比中等，但如果进入水利电力行业国企，工作稳定、福利好，长期发展也不错。</p>
+
+          <p><strong>【考研报考难度整体评价、适合什么样基础的考生】</strong>河海大学电子信息类专业考研难度在211高校中属于中等水平，是性价比较高的考研目标院校。适合以下类型的考生报考：第一类，本科来自普通本科院校（包括一本、二本），希望进入211高校深造、提升学历层次的考生，河海大学对双非考生相对友好；第二类，有志于在南京及长三角地区发展、进入科技企业工作的考生；第三类，对水利信息化、水声信号处理、海洋信息技术等交叉方向感兴趣的考生，河海大学在这些方向有独特优势；第四类，希望进入水利电力行业国企、追求稳定工作的考生，河海毕业生在这些单位有优势；第五类，本科基础一般但复习时间充裕、愿意付出努力冲击211的考生。相比南京航空航天大学、南京理工大学等工科强校，河海大学上岸难度低很多。需要注意的是，河海大学在电子信息领域的学科实力和科研资源相比工科强校存在差距，如果目标是进入顶级科技企业的核心研发岗位，需要额外努力。2024年信息与通信工程学硕复试线约为290分（国家线附近），电子信息专硕复试线约为290分。</p>
+
+          <p><strong>【读研体验与校园生活】</strong>河海大学江宁校区位于南京市江宁区大学城，校园环境优美，绿化覆盖率高，被评为"江苏省文明校园"。校区基础设施完善，图书馆、体育馆、食堂、宿舍等设施条件较好，研究生宿舍一般为双人间或四人间，有空调。南京交通便利，地铁网络覆盖市区主要区域，江宁校区附近有地铁1号线和3号线，出行方便。南京生活便利，美食丰富，鸭血粉丝汤、盐水鸭、小笼包等是南京特色小吃。学校学术氛围浓厚，水利特色活动丰富。导师整体比较负责任，对研究生管理因研究方向而异。需要注意的是，河海大学江宁校区距离市区较远（约20公里），如果在校外实习可能需要较长的通勤时间。另外，作为水利特色高校，工科氛围浓厚但学术风格偏稳重。</p>
+
+          <p><strong>【读研成本与奖助学金】</strong>河海大学全日制硕士研究生学费一般为8000元/年，部分专硕方向学费为10000元/年。学校提供多种奖助学金：国家助学金6000元/年（每月600元发放）、学业奖学金（一等奖10000元/年，二等奖8000元/年，三等奖6000元/年，覆盖比例约80%）、国家奖学金20000元/年（竞争激烈）、严恺奖学金、徐芝纶奖学金等各类社会奖学金、导师助研津贴等。研究生可以通过担任助教（助管）获得额外补贴。由于南京生活成本适中，学校提供的奖助学金基本可以覆盖学费和大部分生活费。南京房租约1000-1800元/月（单间），学校宿舍更便宜，吃饭花费约600-800元/月。综合来看，河海大学是读研成本和就业性价比都比较合理的211高校选择。</p>
+
+          <p><strong>【未来发展与建议】</strong>从长远发展角度来看，选择河海大学需要考虑以下几点：第一，水利电力行业是河海毕业生的传统优势领域，如果你对水利信息化、水利大数据等方向感兴趣，河海大学是最佳选择；第二，南京是长三角地区的重要城市，经济发展前景好，电子信息产业也在快速发展；第三，河海211的学历在考公、选调生、国企就业等方面都有优势，是比较稳妥的选择；第四，建议在读研期间多积累项目经验，特别是与水利、电力相关的项目，这对你以后就业非常重要；第五，可以考虑读博深造，河海有相关博士点，也可以申请外校读博；第六，如果你对海洋信息、水声技术等方向感兴趣，河海大学与自然资源部、海洋局等有合作关系；第七，建议提前了解水利电力行业的校园招聘时间线和流程，提前做好准备。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(18, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="w-full h-full p-10 overflow-hidden">
+      <!-- 标题 -->
+      <h1 class="text-3xl font-bold text-black mb-6 border-b-2 border-black pb-3">浙江大学 | 浙大</h1>
+
+      <!-- 左侧内容 -->
+      <div class="flex gap-8 h-[calc(100%-80px)]">
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【院校层次定位】</strong>浙江大学是教育部直属全国重点大学，入选国家"985工程"重点建设高校、"211工程"重点建设高校、"双一流"建设高校A类行列，由教育部与浙江省人民政府共建。学校前身为1897年创办的求是书院，是中国著名顶级综合性大学，学科门类齐全、实力雄厚，在国内外享有极高声誉，被誉为"东方剑桥"。浙大在计算机科学、光学工程、农业工程、控制科学与工程、材料科学、化学工程等学科领域具有国内乃至世界领先水平。在电子信息与通信工程领域，浙大属于985高校顶尖水平，信息与通信工程学科在教育部第四轮学科评估中获评B+等级（全国前20%），与华南理工大学、华中科技大学、西南交通大学、重庆邮电大学、西安交通大学等处于同一层次，是国内电子信息类学科实力最强的高校之一，超过了众多985高校。考研热度属于985高校第一梯队，竞争非常激烈，是全国最难考的电子信息类研究生院校之一，但相比清华、上交、复旦等C9高校仍然相对容易一些。</p>
+
+          <p><strong>【地理位置详细介绍】</strong>浙江大学坐落于浙江省省会杭州市，校园分为紫金港校区（主校区，位于西湖区余杭塘路866号，研究生主要在此）、玉泉校区（位于西湖区浙大路38号，是工科研究生主要分布地）、西溪校区、华家池校区、之江校区、舟山校区、海宁校区等多个校区。杭州市是浙江省省会、长三角城市群核心城市之一、全国著名的互联网之都和电子商务中心、G20峰会举办城市、2022年亚运会举办城市。杭州电子信息产业极其发达，聚集了阿里巴巴、蚂蚁金服、网易、字节跳动杭州、华为杭州研究所、海康威视、大华股份、新华三、涂鸦智能等大量知名科技企业，被誉为"中国数字经济第一城"和"电商之都"。杭州还是创业创新之城，孕育了众多独角兽企业。杭州生活成本在长三角城市中属于中等偏上水平（主要是房价较高，约30000-50000元/平方米），但比上海低不少。交通方面，杭州萧山国际机场是华东地区重要航空枢纽，高铁网络四通八达，到上海仅需45分钟、到南京仅需1小时、到北京仅需4小时。地铁网络覆盖市区主要区域，出行便利。</p>
+
+          <p><strong>【电子通信相关专业设置】</strong>浙江大学电子信息与通信工程相关研究生培养主要依托信息与电气工程学院、光电科学与工程学院、计算机科学与技术学院、微纳电子学院、工程师学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、844信号与系统）、080300光学工程、080900电子科学与技术、085400电子信息（专业硕士，包含新一代电子信息技术、通信工程、光电信息工程、集成电路工程、计算机技术等方向，初试科目：政治、英语二、数学二、844信号与系统或408计算机基础）。研究生方向涵盖5G/6G移动通信、光电信息处理、图像处理与机器视觉、微波技术、集成电路设计、光纤通信、雷达探测与成像、信号处理与识别、人工智能等。根据2024年招生数据，信息与电气工程学院拟招收硕士研究生约300人左右，光电科学与工程学院约150人左右，招生规模在985高校中属于较大水平。浙江大学在光电信息、光纤通信、微波技术、工业自动化等方向有国内领先水平的科研成果。</p>
+
+          <p><strong>【学科评估等级、专业实力排名】</strong>在教育部全国第四轮学科评估中，浙江大学信息与通信工程学科评估结果为B+等级（全国前20%），与华南理工大学、华中科技大学、西南交通大学、重庆邮电大学、西安交通大学等处于同一层次，超过了众多985高校如北京大学（B）、天津大学（B）、同济大学（B-）等。在985高校中，浙大的信息与通信工程学科实力位居前列，仅次于清华大学（A+）、上海交通大学（A）、西安电子科技大学（A+）、电子科技大学（A+）、北京邮电大学（A+）、国防科技大学（A）等顶尖高校。浙江大学信息与电气工程学院拥有"光电技术及系统"国家工程技术研究中心、"嵌入式系统"教育部工程研究中心等高水平科研平台，承担了国家自然科学基金重大重点项目、国家863计划、973项目等大量科研项目。学院在光电检测、光纤传感、工业自动化、机器人技术等方向有国内领先水平的科研成果，与华为、阿里巴巴、海康威视、大华股份等企业有紧密的产学研合作关系。</p>
+
+          <p><strong>【院校核心亮点、特色方向】</strong>浙江大学电子信息类专业具有以下特色和亮点：第一，顶尖985高校，学历含金量顶级，在全国范围内具有最高认可度，毕业生在就业市场、考公、选调生等方面具有独特优势；第二，地处杭州互联网之都，聚集了阿里巴巴、网易、华为、海康威视、大华股份等顶级科技企业总部或研发中心，实习和就业机会极为丰富，每年大量毕业生进入这些企业工作；第三，学校科研实力雄厚，科研经费充足，实验设备先进，为研究生提供良好的科研条件；第四，研究生培养质量高，毕业生在就业市场极具竞争力，起薪水平在985高校中属于顶尖水平；第五，作为综合性大学，学生可以选修其他学科课程，培养复合型人才；第六，校友资源遍布各行各业，"浙大系"在创业创新领域具有重要影响力；第七，学校保护第一志愿考生（但竞争非常激烈）；第八，校园环境优美，紫金港校区设施先进，生活便利。</p>
+
+          <p><strong>【考研报考优势、保护一志愿、是否歧视双非、复试特点】</strong>浙江大学考研报考优势主要体现在以下几个方面：首先，顶尖985的身份使得浙大毕业生在就业市场、考公、选调生等方面具有最高认可度，是全国考生的首选目标院校之一；其次，学校招生规模较大（每年约500人左右），机会相对较多；第三，地处杭州，靠近顶级科技企业，实习和就业资源顶级；第四，学科实力顶尖，在光电信息、通信系统、工业自动化等方向有独特优势。关于是否歧视双非，浙江大学整体来说对本科背景有一定要求（毕竟是顶尖985高校），每年录取的考生中985、211生源占比较大，但每年也有不少双非考生成功上岸。双非考生需要初试成绩足够高（通常需要380分以上才有较大把握）、复试表现优秀，才有机会被录取。复试内容通常包括专业课笔试（信号与系统或计算机基础）、英语口语面试、综合面试，部分方向会有编程测试。浙大复试相对公平，但竞争非常激烈。</p>
+        </div>
+
+        <div class="flex-1 space-y-4 overflow-y-auto pr-2 text-base leading-relaxed text-black">
+          <p><strong>【毕业生主要就业方向、就业企业】</strong>浙江大学电子信息类研究生毕业后就业方向主要集中在以下几个领域：顶级互联网和科技企业（阿里巴巴、蚂蚁金服、网易、字节跳动杭州、华为杭州、海康威视、大华股份、新华三、涂鸦智能、滴滴出行、蘑菇街等杭州本地及全国顶级科技企业，是浙大毕业生的主要去向，每年大量学生拿到高薪offer）、通信设备与半导体（华为、中兴、爱立信、英特尔杭州、兆易创新、平头哥半导体等）、国有企业和金融机构（国家电网浙江公司、浙江省交投、浙商银行、杭州银行、蚂蚁金服等，薪资高福利好）、科研院所与高校（中科院杭州研究所、浙江大学各学院等，需要继续读博深造）、政府部门与事业单位（选调生、公务员、浙江省/杭州市事业单位等，浙大是很多省份定向选调的目标院校）、创业创新（浙大系创业氛围浓厚，学生创业成功率较高，可以获得浙大创业基金支持）。就业地域分布上，约60-70%的毕业生选择留在浙江省内发展，其中杭州是主要就业城市；约20%前往上海及长三角其他城市发展；其余分散在全国各地甚至海外。</p>
+
+          <p><strong>【平均起薪、应届生年薪水平、国企/私企/研究所就业待遇】</strong>浙江大学电子信息类硕士毕业生平均起薪水平在18000-30000元/月之间（年薪约22-36万元），具体薪资取决于就业去向和个人能力，是全国985高校中起薪水平最高的高校之一。从就业单位性质来看：顶级私企（如阿里巴巴、蚂蚁金服、字节跳动、网易、海康威视、大华股份等）起薪最高，2024年阿里巴巴、字节跳动给浙大硕士的年薪普遍在30-50万元之间（SP offer可达60万+），华为杭州、中兴等通信设备商年薪约25-40万元，但工作强度大、加班普遍；普通私营企业起薪约18-25万元，工作强度相对可控；国有企业和金融机构（如浙商银行、杭州银行、国家电网浙江公司等）年薪约15-25万元，福利完善、社保公积金缴纳比例高、工作相对稳定；科研院所年薪约15-22万元，部分可以解决杭州户口。杭州房价较高（市区约30000-50000元/平方米），但浙大毕业生起薪高，买房压力相对可控。整体来看，浙大硕士毕业生在杭州及全国的竞争力都是顶尖的。</p>
+
+          <p><strong>【考研报考难度整体评价、适合什么样基础的考生】</strong>浙江大学电子信息类专业考研难度在985高校中属于较高水平，是全国最难考的电子信息类研究生院校之一，但相比清华、上交、复旦、北大等C9高校仍然相对容易一些。适合以下类型的考生报考：第一类，本科来自985、211高校或重点本科院校的学生，基础非常扎实、复习时间充裕、有志于冲击顶尖985的考生，浙大每年录取的考生中有很多来自985、211高校；第二类，目标是进入顶级科技企业（阿里巴巴、字节跳动、华为等）、获取高薪的考生的考生，浙大在这些企业的认可度极高；第三类，有志于在杭州及长三角地区发展的考生，浙大在这些地区具有独特优势；第四类，本科期间有项目经验、竞赛获奖或科研成果的考生，浙大导师比较看重科研潜力；第五类，对光电信息、工业自动化、机器人等方向感兴趣的考生，浙大在这些方向有国内领先的研究。需要注意的是，浙大近年来报考热度持续上升，竞争非常激烈，2024年信息与通信工程学硕复试线约为370分，电子信息专硕复试线约为365分，部分方向甚至超过390分，建议早做准备、充分复习，尤其要重视数学和专业课的备考。</p>
+
+          <p><strong>【读研体验与校园生活】</strong>浙江大学紫金港校区是亚洲最大的单一校区之一，校园环境优美，设施先进，被评为"中国最美大学校园"之一。校区包括教学楼、图书馆、体育馆、游泳馆、食堂、宿舍等完善设施，研究生宿舍一般为双人间，有空调和热水器，费用约1600元/年。校区内有启真湖、求是湖等水系，绿化覆盖率高，环境宜人。杭州生活便利，美食丰富，片儿川、东坡肉、西湖醋鱼等是杭州特色美食。交通方面，地铁5号线和2号线覆盖紫金港校区，出行方便。阿里、网易、华为等企业经常在浙大举办宣讲会和招聘会，学生实习和就业机会丰富。学校学术氛围浓厚，国际交流活跃，学生可以申请出国交换或继续深造。导师整体水平较高，科研项目多，但竞争也比较激烈，需要主动争取机会。需要注意的问题是，浙大紫金港校区非常大（5000多亩），校区内需要骑行或乘坐校车出行。</p>
+
+          <p><strong>【读研成本与奖助学金】</strong>浙江大学全日制硕士研究生学费一般为8000元/年，部分专硕方向学费较高（如工程师学院部分方向可能达到28000元/年）。学校提供多种奖助学金：国家助学金6000元/年（每月600元发放）、学业奖学金（一等奖10000元/年，二等奖8000元/年，三等奖6000元/年，覆盖比例约90%）、国家奖学金20000元/年（竞争激烈）、博士新生奖学金（硕博连读）、专项奖学金（如唐仲英奖学金、华为奖学金、阿里巴巴奖学金等，金额较高）、导师助研津贴等。研究生可以通过担任助教（助管）获得额外补贴。由于杭州生活成本较高（主要是房租），学校提供的奖助学金基本可以覆盖学费和部分生活费，家庭需要承担一定开支。杭州房租约1500-3000元/月（单间），吃饭花费约800-1200元/月。综合来看，浙大是读研成本和就业回报都比较高的选择。</p>
+
+          <p><strong>【未来发展与建议】</strong>从长远发展角度来看，选择浙江大学需要考虑以下几点：第一，浙大985+强势学科的组合在就业市场具有最高认可度，是进入顶级科技企业的最佳跳板；第二，杭州是数字经济之都，阿里巴巴、网易、华为、海康威视等企业总部或研发中心聚集，未来发展前景广阔；第三，"浙大系"在创业创新领域具有重要影响力，校友网络遍布各行各业，对职业发展帮助很大；第四，建议在读研期间积极争取实习机会，特别是阿里巴巴、字节跳动、华为等企业的实习，这对你以后就业非常重要；第五，可以考虑读博深造，浙大是国内顶尖的博士培养基地，也可以申请出国读博；第六，浙大毕业生在选调生、公务员考试方面也有优势，是很多省份定向选调的目标院校；第七，建议提前了解各学院的导师研究方向和科研项目，选择与兴趣相符的导师。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(19, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="absolute inset-0 bg-gradient-to-br from-slate-50 to-white"></div>
+    <div class="relative z-10 p-8 h-full flex flex-col">
+      <div class="mb-4">
+        <h1 class="text-3xl font-bold text-black mb-2">南京航空航天大学 | 南航</h1>
+        <div class="flex gap-3 text-sm">
+          <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full">211/双一流</span>
+          <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full">信息与通信工程 B</span>
+          <span class="px-3 py-1 bg-orange-100 text-orange-800 rounded-full">江苏南京</span>
+        </div>
+      </div>
+
+      <div class="flex-1 grid grid-cols-2 gap-6 overflow-hidden">
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-blue-500 pl-2">院校层次定位</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">南京航空航天大学是工业和信息化部直属全国重点大学，入选国家"211工程"重点建设高校、"985工程优势学科创新平台"建设高校、"双一流"建设高校，由工业和信息化部、教育部与江苏省人民政府共建。学校是著名的"国防七子"之一，在航空宇航科学与技术、力学、机械工程等学科领域具有国内领先水平。在电子信息与通信工程领域，南航属于211高校中等偏上水平，信息与通信工程学科在教育部第四轮学科评估中获评B等级（全国前30%），与深圳大学、武汉大学、南昌大学等处于同一层次。考研热度属于211高校第一梯队，竞争比较激烈，是众多考生报考的热门目标院校之一。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-green-500 pl-2">地理位置详细介绍</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">南京航空航天大学坐落于江苏省省会南京市，校园分为明故宫校区（位于秦淮区御道街29号）和将军路校区（位于江宁区将军大道29号），研究生主要在将军路校区学习生活。南京市是江苏省省会、长三角城市群核心城市之一、全国重要的科研教育基地和综合交通枢纽。南京电子信息产业发达，拥有南京集成电路产业服务中心、南京软件谷、江宁开发区等产业平台，聚集了华为南京研究所、中兴通讯南京分公司、55所、28所、14所等一批知名科研院所和科技企业。南京是华东地区重要的交通枢纽，高铁网络四通八达，到上海仅需1小时、到杭州仅需1.5小时、到北京仅需3小时。南京生活成本在长三角城市中属于中等水平，比上海、杭州低不少，但比合肥、太原等城市略高。南航将军路校区位于江宁大学城，周边电子信息类企业资源丰富，为研究生提供了便利的实习和就业条件。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-purple-500 pl-2">电子通信相关专业设置</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">南京航空航天大学电子信息与通信工程相关研究生培养主要依托电子信息工程学院、自动化学院等学院。其中电子信息工程学院是南航规模最大、实力最强的学院之一，拥有"信息与通信工程"一级学科博士学位授权点和硕士学位授权点。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、821信号系统与数字逻辑设计）、080900电子科学与技术、085400电子信息（专业硕士，包含新一代电子信息技术、通信工程、集成电路工程、光电信息工程等方向，初试科目：政治、英语二、数学二、821信号系统与数字逻辑设计或822专业基础综合）。研究生方向涵盖航空电子系统与综合模块化电子系统、雷达探测与成像技术、毫米波与微波技术、通信系统与网络、信号处理与模式识别、无人机通信与测控、光电检测与光纤传感等。根据2024年招生数据，电子信息工程学院拟招收硕士研究生约200人左右，其中学硕约80人、专硕约120人，招生规模在211高校中属于较大水平。</p>
+          </div>
+        </div>
+
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-red-500 pl-2">学科评估等级、专业实力排名</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">在教育部全国第四轮学科评估中，南京航空航天大学信息与通信工程学科评估结果为B等级（全国前30%），与深圳大学、武汉大学、南昌大学、华中师范大学等处于同一层次，超过了部分211高校和普通985高校。在江苏省内，南航的信息与通信工程学科实力位居前列，仅次于东南大学、南京大学等工科强校。南航电子信息工程学院拥有"雷达成像与微波技术"教育部重点实验室、"航空电子综合技术"国防科技重点实验室等高水平科研平台，承担了国家自然科学基金、国家重大科技专项等大量科研项目。学院在航空电子、雷达技术、微波技术等国防方向有独特的科研积累，与中国电子科技集团、中国航天科工集团、中国航空工业集团等军工单位有紧密的产学研合作关系。南航的研究生培养质量较高，毕业生在中国电科、航天科工等军工院所中有良好口碑。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-yellow-500 pl-2">院校核心亮点、特色方向</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">南京航空航天大学电子信息类专业具有以下特色和亮点：第一，作为"国防七子"之一，南航毕业生进入军工院所具有天然优势，中国电科、航天科工、航空工业等集团每年都会在南航进行专场招聘；第二，航空电子是南航的特色优势方向，学校在机载雷达、航空通信、无人机测控等方向有国内领先水平的科研成果，与国内主要飞机设计研究所和主机厂有紧密合作关系；第三，地处南京江宁大学城，靠近华为南京研究所、中兴南京、55所、28所、14所等知名企业和科研院所，实习和就业资源丰富；第四，学校科研经费充足，为研究生提供良好的科研条件和补助；第五，专业课难度适中，821信号系统与数字逻辑设计历年真题重复率较高，复习资料齐全；第六，学校保护第一志愿考生，复试比例合理（通常1:1.2）。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-teal-500 pl-2">考研难度与报考建议</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">南京航空航天大学电子信息类专业考研难度在211高校中属于中等偏上水平，竞争比较激烈。适合以下类型的考生报考：第一类，本科来自电子信息、通信工程、自动化等工科专业，基础扎实、复习时间充裕的考生；第二类，有志于进入国防军工系统工作的考生，南航在军工院所招聘中有独特优势；第三类，有志于在南京及长三角地区发展、进入科研院所或优质企业工作的考生；第四类，本科期间有项目经验、竞赛获奖或科研成果的考生。需要注意的是，南航近年来报考热度持续上升，2024年信息与通信工程学硕复试线约为330分，电子信息专硕复试线约为320分，预计2025年竞争压力可能进一步加大。建议考生提前了解专业课参考书目和历年真题，针对性复习，尤其要重视数学和专业课的备考。南航的初试成绩在最终录取中占比较大（通常60-70%），因此初试分数是硬道理。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(20, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="absolute inset-0 bg-gradient-to-br from-slate-50 to-white"></div>
+    <div class="relative z-10 p-8 h-full flex flex-col">
+      <div class="mb-4">
+        <h1 class="text-3xl font-bold text-black mb-2">华东理工大学 | 华东理工</h1>
+        <div class="flex gap-3 text-sm">
+          <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full">211/双一流</span>
+          <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full">信息与通信工程 C类</span>
+          <span class="px-3 py-1 bg-orange-100 text-orange-800 rounded-full">上海</span>
+        </div>
+      </div>
+
+      <div class="flex-1 grid grid-cols-2 gap-6 overflow-hidden">
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-blue-500 pl-2">院校层次定位</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">华东理工大学是教育部直属全国重点大学，入选国家"211工程"重点建设高校、"双一流"建设高校，由教育部与上海市人民政府共建。学校前身为1952年创办的华东化工学院，是新中国第一所以化工为特色的高等学府，在化学工程与技术、材料科学与工程、环境科学与工程、生物工程等学科领域具有国内领先水平，被誉为"化学工程师的摇篮"。在电子信息与通信工程领域，华东理工属于211高校中的中等偏下水平，第四轮学科评估中信息与通信工程未进入B类（估计为C+或C等级），整体学科实力不如上海大学、东华大学等同城高校。但由于学校综合实力较强、地理位置优越，每年仍吸引了大量考生报考，考研热度属于211高校中下水平，竞争相对不那么激烈，上岸难度在211高校中属于较低的一类。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-green-500 pl-2">地理位置详细介绍</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">华东理工大学坐落于上海市，校园分为徐汇校区（位于徐汇区梅陇路130号）和奉贤校区（位于奉贤区海思路999号），研究生主要在徐汇校区学习生活（部分研究生在奉贤校区）。上海市是中华人民共和国直辖市、国家中心城市、超大城市，全国经济总量第一大城市，国际金融中心和对外开放前沿。上海电子信息产业高度发达，聚集了华为上海研究所、中兴通讯上海研发中心、阿里、腾讯、字节跳动上海分部、拼多多、携程、饿了么等大量知名科技企业，以及中国商飞、中芯国际、华虹半导体、兆芯微电子等高端制造企业。此外，上海还拥有中国科学院上海微系统与信息技术研究所、上海航天技术研究院等顶级科研院所。漕河泾新兴技术开发区、张江高科技园区、紫竹高新技术产业开发区等产业园区聚集了大量集成电路和通信企业，为电子信息类研究生提供了丰富的实习和就业机会。上海教育资源顶级、高校云集，是全国研究生报考最热门城市之一，但生活成本也位居全国前列，房价和房租较高。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-purple-500 pl-2">电子通信相关专业设置</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">华东理工大学电子信息与通信工程相关研究生培养主要依托信息科学与工程学院，该学院是华理规模较大、实力较强的学院之一。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、801计算机专业基础综合或802物理化学）、080200机械工程（部分方向涉及电子技术）、085400电子信息（专业硕士，包含控制科学与工程、电子与通信工程、集成电路工程、计算机技术等方向）。研究生方向涵盖过程控制与优化、智能系统与机器人、通信系统与网络、信号处理与模式识别、集成电路设计、嵌入式系统等。根据2024年招生数据，信息科学与工程学院拟招收硕士研究生约180人左右，其中学硕约60人、专硕约120人，招生规模在211高校中属于中等水平。需要注意的是，华东理工的专业课设置与其他高校有所不同，考生需要提前了解具体科目和要求。</p>
+          </div>
+        </div>
+
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-red-500 pl-2">学科评估等级、专业实力排名</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">在教育部全国第四轮学科评估中，华东理工大学信息与通信工程学科评估结果未进入B类（估计为C+或C等级），与上海电力大学、上海海事大学等处于相近层次。在上海市内，华东理工的信息与通信工程学科实力不如同济大学、上海交通大学、华东师范大学、上海大学等高校，但学校综合实力和211学历含金量是明显优势。华东理工大学信息科学与工程学院拥有"过程系统综合自动化"国家重点实验室（与清华大学共建）、"工业自动化"上海市重点实验室等科研平台，承担了国家自然科学基金、上海市科技创新行动计划等科研项目。学院在化工自动化、过程控制、智能系统等方向有较强的科研积累，与上海化工研究院、上海自动化仪表股份有限公司等本地企业有产学研合作关系。相比同城其他211高校，华东理工在电子信息领域的学科实力和科研资源相对有限，但导师普遍认真负责。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-yellow-500 pl-2">院校核心亮点、特色方向</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">华东理工大学电子信息类专业具有以下特色和亮点：第一，地处上海，靠近顶级科技企业和科研院所，实习和就业资源顶级，尽管学科实力不是最强，但上海的城市资源和企业机会是其他城市无法比拟的；第二，211高校学历含金量较好，在上海就业市场具有优势，特别是一些不限专业的岗位（如管培生、售前技术支持等）；第三，学校在化工自动化、过程控制等方向有特色积累，与上海化工、制药等企业有合作关系；第四，复试分数线通常执行国家线或略高于国家线，上岸难度相对较低；第五，学校保护第一志愿考生，复试比例合理（通常1:1.2）；第六，徐汇校区位于上海市徐汇区，靠近漕河泾开发区和上海南站，交通便利、生活设施完善。需要注意的是，华东理工在电子信息领域不是传统强校，考生需要根据自己的职业规划合理选择。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-teal-500 pl-2">考研难度与报考建议</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">华东理工大学电子信息类专业考研难度在211高校中属于中等偏低水平，是性价比较高的考研目标院校。适合以下类型的考生报考：第一类，本科来自普通本科院校的学生，基础一般但希望进入211高校深造、提升学历层次的考生；第二类，有志于在上海及长三角地区发展的考生，尽管华东理工的电子信息学科实力不是最强，但上海的就业机会是巨大的优势；第三类，目标是上海本地企业或国企、央企的考生，211学历在上海就业市场有较大帮助；第四类，复习时间有限、希望降低考研风险的考生，华东理工上岸难度相对较低。需要注意的是，复试分数线通常执行国家线，但热门方向竞争仍然存在。华东理工的毕业生就业方向主要集中在上海本地企业，包括半导体企业（华虹半导体、中芯国际等）、通信设备商（华为上海、中兴上海等）、互联网企业（阿里、腾讯、字节跳动上海等）、国企央企（上海电信、上海移动、电网上海公司等），平均起薪在10000-15000元/月之间（年薪约12-18万元），具体取决于就业去向和个人能力。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(21, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="absolute inset-0 bg-gradient-to-br from-slate-50 to-white"></div>
+    <div class="relative z-10 p-8 h-full flex flex-col">
+      <div class="mb-4">
+        <h1 class="text-3xl font-bold text-black mb-2">中国海洋大学 | 海大</h1>
+        <div class="flex gap-3 text-sm">
+          <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full">985/211/双一流A类</span>
+          <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full">信息与通信工程 C/C-</span>
+          <span class="px-3 py-1 bg-orange-100 text-orange-800 rounded-full">山东青岛</span>
+        </div>
+      </div>
+
+      <div class="flex-1 grid grid-cols-2 gap-6 overflow-hidden">
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-blue-500 pl-2">院校层次定位</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中国海洋大学是教育部直属全国重点大学，入选国家"985工程"重点建设高校、"211工程"重点建设高校、"双一流"建设高校A类行列，由教育部与山东省人民政府、自然资源部共建。学校在海洋科学、水产科学、海洋技术、海洋工程等学科领域具有世界领先水平，是著名的"海洋科学最高学府"，被誉为"中国海洋科学的摇篮"。在电子信息与通信工程领域，海大属于985高校中的中等偏下水平，第四轮学科评估中信息与通信工程未进入B类（估计为C或C-等级），整体学科实力不如北理工、华工、武大等工科强校。但作为985高校，海大的学历含金量较高，每年仍吸引了大量考生报考。考研热度属于985高校中下水平，竞争相对不那么激烈，是性价比较高的985考研目标院校，特别适合基础一般但希望进入985高校深造的考生。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-green-500 pl-2">地理位置详细介绍</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中国海洋大学坐落于山东省青岛市，校园分为崂山校区（位于崂山区松岭路238号，是主校区）和鱼山校区（位于市南区鱼山路5号，是老校区，风景优美），研究生主要在崂山校区学习生活。青岛市是山东省经济最发达的城市、计划单列市、全国著名的海滨旅游城市和品牌之都，2023年GDP位居山东省第一。青岛市电子信息产业发展较快，形成了以海尔、海信、澳柯玛、解放双手等为代表的家电电子产业集群，以芯恩半导体、惠科微电子等为代表的集成电路产业集群，以及以北斗产业、海丽雅等为代表的高新技术产业集群。青岛近年来大力发展集成电路、新型显示、工业互联网等战略性新兴产业。青岛生活成本在沿海城市中属于中等水平，比深圳、厦门低不少，但比济南、郑州等省会城市略高。交通方面，青岛胶东国际机场是山东省最大航空枢纽，高铁网络四通八达，青岛到济南仅需2.5小时、到北京仅需4小时、到上海仅需5小时。崂山校区位于青岛市崂山区，靠近青岛高科技工业园，环境和配套设施都比较好。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-purple-500 pl-2">电子通信相关专业设置</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中国海洋大学电子信息与通信工程相关研究生培养主要依托信息科学与工程学院、工程学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、946信号与系统或947普通物理）、080300光学工程、085400电子信息（专业硕士，包含新一代电子信息技术、通信工程、光电信息工程等方向）。研究生方向涵盖海洋信息处理与可视化、海洋探测技术、水声通信与水下传感器网络、信号与信息处理、通信系统与网络、光电检测技术等。根据2024年招生数据，信息科学与工程学院拟招收硕士研究生约120人左右，其中学硕约40人、专硕约80人，招生规模在985高校中属于中等偏小水平。</p>
+          </div>
+        </div>
+
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-red-500 pl-2">学科评估等级、专业实力排名</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">在教育部全国第四轮学科评估中，中国海洋大学信息与通信工程学科评估结果未进入B类（估计为C或C-等级）。在985高校中，海大的信息与通信工程学科实力属于较弱的一类，不如清华、北大、北航、北理工、上交、复旦、浙大、华科等工科强校。但作为985高校，海大的综合实力和学历含金量是明显优势。中国海洋大学信息科学与工程学院拥有"海洋信息技术"教育部工程研究中心、"山东省海洋环境监测技术"重点实验室等科研平台，承担了国家自然科学基金、国家863计划等科研项目。学院在海洋信息处理、海洋探测技术、水声通信等方向有特色研究，与国家海洋局、山东省海洋研究所等机构有合作关系。相比传统工科强校，海大在电子信息领域的科研项目和经费相对有限，但导师普遍认真负责，研究生培养质量有保障。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-yellow-500 pl-2">院校核心亮点、特色方向</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中国海洋大学电子信息类专业具有以下特色和亮点：第一，985高校学历含金量高，在就业市场具有明显优势，可以帮助考生进入一些要求985学历的岗位和企业；第二，考研难度在985高校中属于较低水平，是性价比较高的985目标院校，竞争不如清华、北大、华工等高校激烈，上岸几率更大；第三，在海洋信息处理、海洋探测技术、水声通信等方向有特色研究，与国家海洋战略高度契合；第四，地处青岛，靠近海尔、海信、澳柯玛等知名企业，以及芯恩半导体等集成电路企业；第五，学校保护第一志愿考生，复试比例合理；第六，青岛城市环境优美、气候宜人、生活便利，是宜居的读研城市。鱼山校区位于青岛老城区，靠近栈桥、八大关等著名景点，风景优美，但研究生通常在崂山校区。需要注意的是，海大在电子信息领域不是传统强校，如果目标是进入顶级科技企业或继续读博深造，可能需要额外努力。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-teal-500 pl-2">考研难度与报考建议</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中国海洋大学电子信息类专业考研难度在985高校中属于较低水平，是性价比较高的考研目标院校。适合以下类型的考生报考：第一类，本科来自普通本科院校的学生，基础一般但希望进入985高校深造、提升学历层次的考生；第二类，有志于在山东及北方地区发展的考生，海大在山东省内就业认可度很高；第三类，目标是国企、央企、选调生等对学历有要求的岗位的考生，985学历是重要敲门砖；第四类，对海洋信息方向感兴趣的考生，海大在这个领域有独特优势；第五类，不介意学校工科实力相对较弱、但希望获得985学历加持的考生。需要注意的是，复试分数线通常执行国家线或略高于国家线，但部分热门方向仍然有一定竞争。中国海洋大学电子信息类硕士毕业生平均起薪水平在8000-13000元/月之间（年薪约10-16万元），在985高校中属于中等偏低水平，但青岛生活成本较低，性价比不错。毕业生就业方向主要集中在青岛本地企业（海尔、海信、澳柯玛等）、山东省内企业（浪潮、歌尔等）、国企央企（国家电网山东公司、山东移动等）、考研深造等。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(22, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="absolute inset-0 bg-gradient-to-br from-slate-50 to-white"></div>
+    <div class="relative z-10 p-8 h-full flex flex-col">
+      <div class="mb-4">
+        <h1 class="text-3xl font-bold text-black mb-2">中山大学 | 中大</h1>
+        <div class="flex gap-3 text-sm">
+          <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full">985/211/双一流A类</span>
+          <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full">信息与通信工程 B-</span>
+          <span class="px-3 py-1 bg-orange-100 text-orange-800 rounded-full">广东广州/深圳</span>
+        </div>
+      </div>
+
+      <div class="flex-1 grid grid-cols-2 gap-6 overflow-hidden">
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-blue-500 pl-2">院校层次定位</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中山大学是教育部直属全国重点大学，由教育部与广东省人民政府共建，入选国家"985工程"重点建设高校、"211工程"重点建设高校、"双一流"建设高校A类行列，由孙中山先生于1924年创办，是中国著名的顶级综合性大学。中大在临床医学、生物医学工程、工商管理、公共管理、法学、生态学、哲学等学科领域具有国内领先水平，是华南地区综合实力最强的高校。在电子信息与通信工程领域，中大属于985高校中等偏下水平，信息与通信工程学科在教育部第四轮学科评估中获评B-等级（全国前40%），与合肥工业大学、苏州大学、中国矿业大学、河海大学等处于同一层次。虽然中大的电子信息学科不是其最强学科，但学校综合实力和985学历含金量是明显优势。考研热度属于985高校中上水平，竞争比较激烈，是华南地区考生报考的热门目标院校之一。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-green-500 pl-2">地理位置详细介绍</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中山大学坐落于广东省广州市和深圳市，校园分为广州校区南校园（位于海珠区新港西路135号，历史悠久、文化底蕴深厚）、广州校区北校园（位于越秀区中山二路74号，医学部的根据地）、广州校区东校园（位于番禺区大学城外环东路213号，是主要的研究生校区）、深圳校区（位于深圳市光明区科学城，是中大与深圳市政府合作建设的新校区，环境优美、设施先进）。电子信息类研究生主要在广州校区东校园和深圳校区学习生活。广州市是广东省省会、粤港澳大湾区核心城市、国家中心城市、全国经济总量第三大城市，拥有汽车、电子、石化、金融、商贸等多个支柱产业。深圳市是中国改革开放的前沿城市、粤港澳大湾区核心城市、全国科技创新中心，拥有华为、腾讯、中兴、大疆、比亚迪等世界级科技企业，被誉为"中国硅谷"。粤港澳大湾区电子信息产业发达，聚集了完整的通信设备产业链和互联网产业集群，为电子信息类毕业生提供了丰富的实习和就业机会。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-purple-500 pl-2">电子通信相关专业设置</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中山大学电子信息与通信工程相关研究生培养主要依托电子与信息工程学院（广州校区）、电子与通信工程学院（深圳校区）、集成电路学院等学院。具体招生专业包括：学术型硕士081000信息与通信工程（初试科目：政治、英语一、数学一、886信号与系统或887光电基础）、080300光学工程、085400电子信息（专业硕士，包含新一代电子信息技术、通信工程（含宽带网络、移动通信等）、集成电路工程、光电信息工程等方向）。研究生方向涵盖光电信息技术与器件、5G/6G移动通信、卫星通信与导航、雷达探测与成像、信号处理与机器学习、集成电路设计、数字系统设计等。根据2024年招生数据，电子与信息工程学院（广州）和电子与通信工程学院（深圳）合计拟招收硕士研究生约200人左右，其中学硕约60人、专硕约140人，招生规模在985高校中属于中等偏大水平。需要特别注意的是，中山大学不同学院的电子信息专业初试科目有所不同，考生需要仔细查看招生简章。</p>
+          </div>
+        </div>
+
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-red-500 pl-2">学科评估等级、专业实力排名</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">在教育部全国第四轮学科评估中，中山大学信息与通信工程学科评估结果为B-等级（全国前40%），与合肥工业大学、苏州大学、中国矿业大学、河海大学等处于同一层次。在广东省内，中山大学的信息与通信工程学科实力位居前列，仅次于华南理工大学（985，B+）等工科强校，但比深圳大学（双非，B）、暨南大学（211）等略强或相近。中山大学电子与信息工程学院拥有"光电材料与技术"国家重点实验室培育基地、"广东省光电信息技术"重点实验室等高水平科研平台，承担了国家自然科学基金、国家重大科技专项等大量科研项目。学院在光电信息技术、微波与射频技术、信号处理等方向有较强的科研积累。深圳校区的电子与通信工程学院则依托深圳的产业优势，在通信系统、集成电路设计等方向有较快发展。中山大学的研究生培养质量较高，毕业生在华为、腾讯、中兴等企业中有良好口碑。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-yellow-500 pl-2">院校核心亮点、特色方向</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中山大学电子信息类专业具有以下特色和亮点：第一，985高校学历含金量高，在就业市场特别是珠三角地区具有明显优势，可以帮助考生进入一些要求985学历的岗位和企业；第二，地处粤港澳大湾区核心区域，广州和深圳两个校区都靠近华为、腾讯、中兴、大疆、比亚迪等顶级科技企业，实习和就业机会极为丰富；第三，深圳校区是近年来新建的高水平校区，硬件设施先进，靠近深圳光明科学城，企业资源丰富；第四，学校综合实力雄厚，学生可以选修其他学科课程，跨学科发展机会多；第五，光电信息技术是中山大学的特色优势方向，与广东省光电信息产业高度契合；第六，集成电路学院是近年来新成立的学院，发展迅速，与深圳集成电路产业集群有紧密合作。需要注意的是，中山大学的电子信息学科不是其传统优势学科，相比同城华南理工大学在工科实力上有所差距。</p>
+          </div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-teal-500 pl-2">考研难度与报考建议</h3>
+            <p class="text-sm text-gray-800 leading-relaxed">中山大学电子信息类专业考研难度在985高校中属于中等水平，竞争比较激烈但相比清华、北大、上交、复旦等C9高校仍然相对容易上岸。适合以下类型的考生报考：第一类，本科来自985/211高校或重点本科院校的学生，基础扎实、复习时间充裕；第二类，目标是进入985高校深造、获取高学历含金量的考生，中山大学作为华南地区顶级综合性大学具有较高认可度；第三类，有志于在粤港澳大湾区发展、进入顶级科技企业工作的考生，华为、腾讯、中兴等企业在中山大学有专场招聘；第四类，本科期间有项目经验、竞赛获奖或科研成果的考生。需要注意的是，中山大学近年来报考热度持续上升，2024年部分学院电子信息专硕复试线超过340分，预计竞争压力会进一步加大。建议考生提前了解目标学院的专业课参考书目和历年真题，针对性复习，尤其要重视数学和专业课的备考。中山大学电子信息类硕士毕业生平均起薪水平在12000-18000元/月之间（年薪约14-22万元），在985高校中属于中等偏上水平，粤港澳大湾区的科技企业薪资水平较高。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+<script>window.slideDataMap.set(23, `
+  <div class="w-[1440px] h-[810px] shadow-2xl relative overflow-hidden slide-bg bg-white">
+    <div class="absolute inset-0 bg-gradient-to-br from-slate-50 to-white"></div>
+    <div class="relative z-10 p-8 h-full flex flex-col">
+      <div class="mb-4 text-center">
+        <h1 class="text-3xl font-bold text-black mb-2">整体择校总结与建议</h1>
+        <p class="text-gray-600">电子信息、通信工程考研择校全攻略</p>
+      </div>
+
+      <div class="flex-1 grid grid-cols-2 gap-6 overflow-hidden">
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border-2 border-blue-300 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-blue-500 pl-2">各层次院校难度梯度分析</h3>
+            <div class="text-sm text-gray-800 space-y-2">
+              <p class="font-semibold text-blue-800">第一层次（顶尖985）</p>
+              <p class="ml-2">北京理工大学（A-学科）、浙江大学（B+学科）——学科实力顶尖、竞争激烈，适合基础非常扎实、本科背景较好的考生冲击。</p>
+              <p class="font-semibold text-green-800 mt-3">第二层次（强势985）</p>
+              <p class="ml-2">华南理工大学（B+学科）、武汉大学（B学科）、中山大学（B-学科）——学科实力较强、竞争较激烈，适合基础较好、本科为重点院校的考生。</p>
+              <p class="font-semibold text-yellow-800 mt-3">第三层次（普通985/强211）</p>
+              <p class="ml-2">南京航空航天大学（B学科）、深圳大学（B学科）、武汉理工大学（B学科）、苏州大学（B-学科）、合肥工业大学（B-学科）、中国矿业大学（B-学科）、河海大学（B-学科）——学科实力中等偏上、性价比高，适合基础中等、本科为普通一本或211的考生。</p>
+              <p class="font-semibold text-gray-800 mt-3">第四层次（普通211）</p>
+              <p class="ml-2">华东师范大学、太原理工大学、安徽大学、华东理工大学、南昌大学、南京信息工程大学、江南大学、中国海洋大学——上岸难度较低，适合基础一般或想稳妥上岸的考生。</p>
+            </div>
+          </div>
+
+          <div class="bg-white border-2 border-green-300 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-green-500 pl-2">地理位置与就业分析</h3>
+            <div class="text-sm text-gray-800 space-y-2">
+              <p class="font-semibold text-purple-800">北京和上海院校</p>
+              <p class="ml-2">北京理工大学坐拥顶级科研院所和科技企业资源，但生活成本极高，房价和房租位居全国前列。</p>
+              <p class="font-semibold text-blue-800 mt-3">粤港澳大湾区院校</p>
+              <p class="ml-2">华南理工大学、中山大学、深圳大学坐拥华为、腾讯、中兴等顶级企业资源，薪资水平高，发展前景好，是电子信息类毕业生就业的首选区域之一。</p>
+              <p class="font-semibold text-green-800 mt-3">长三角院校</p>
+              <p class="ml-2">浙江大学、苏州大学、河海大学、南京航空航天大学、南京信息工程大学、华东理工大学、江南大学坐拥阿里、上电所等企业资源，生活成本适中，性价比高。</p>
+              <p class="font-semibold text-orange-800 mt-3">中部城市院校</p>
+              <p class="ml-2">武汉理工大学、武汉大学、合肥工业大学、中国矿业大学坐拥光谷等产业资源，生活成本较低，是性价比较高的选择。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-4 overflow-y-auto pr-2">
+          <div class="bg-white border-2 border-purple-300 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-purple-500 pl-2">择校策略建议</h3>
+            <div class="text-sm text-gray-800 space-y-2">
+              <p><span class="font-semibold">第一，</span>对于基础扎实、目标是顶级企业和科研院所的考生，建议冲击北京理工大学、浙江大学、华南理工大学等顶尖院校，这些学校的学历含金量高、就业前景好，特别是想进军工院所的可以选择"国防七子"（北理、南航等）。</p>
+              <p><span class="font-semibold">第二，</span>对于基础中等、追求性价比的考生，建议选择苏州大学、合肥工业大学、武汉理工大学、南京航空航天大学等211强校，这些学校上岸难度适中、就业前景较好。</p>
+              <p><span class="font-semibold">第三，</span>对于基础一般、追求稳妥上岸的考生，建议选择太原理工大学、安徽大学、南昌大学、中国海洋大学等院校，上岸难度较低。</p>
+              <p><span class="font-semibold">第四，</span>对于有地域偏好的考生，可以根据自己想在哪个城市或区域发展来选择对应的院校，比如想在大湾区发展就选华工、中大、深大，想在长三角发展就选浙大、苏大、南航等。</p>
+              <p><span class="font-semibold">第五，</span>对于有行业偏好的考生，比如想进军工院所的可以选择"国防七子"，想进互联网大厂的可以选择浙大、华工、深大等。</p>
+            </div>
+          </div>
+
+          <div class="bg-white border-2 border-red-300 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-red-500 pl-2">备考建议</h3>
+            <div class="text-sm text-gray-800 space-y-2">
+              <p><span class="font-semibold">第一，</span>数学和专业课是拉开分差的关键科目，需要投入大量时间精力复习，这两门课的成绩直接决定了能否进入复试以及排名顺序。</p>
+              <p><span class="font-semibold">第二，</span>目标院校的选择要切合实际，既不能好高骛远也不能过于保守，建议根据自己的基础水平、复习时间、目标城市等因素综合考虑。</p>
+              <p><span class="font-semibold">第三，</span>提前了解目标院校的专业课参考书目和历年真题，针对性复习，部分院校的专业课难度较大或风格独特，需要提前准备。</p>
+              <p><span class="font-semibold">第四，</span>复试同样重要，初试结束后要尽快开始准备复试内容，包括专业课笔试、英语口语、综合面试等环节。</p>
+              <p><span class="font-semibold">第五，</span>关注目标院校的招生简章和考试大纲变化，及时调整复习计划，部分院校每年可能会有科目或参考书目的调整。</p>
+              <p><span class="font-semibold">第六，</span>保持良好的心态，考研是一场持久战，合理安排作息时间，保持身心健康，才能发挥出最佳水平。</p>
+            </div>
+          </div>
+
+          <div class="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-indigo-300 rounded-lg p-4">
+            <h3 class="text-lg font-bold text-black mb-2 border-l-4 border-indigo-500 pl-2">重要提醒</h3>
+            <div class="text-sm text-gray-800">
+              <p>考研择校没有绝对的好坏之分，只有适合与否。建议考生根据自身的职业规划、地理位置偏好、经济条件等因素综合考虑，选择最适合自己的目标院校。无论选择哪所院校，都需要付出足够的努力才能成功上岸。祝愿所有考生都能考上理想的学校！</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+`);</script>
+
+</body>
+</html>
